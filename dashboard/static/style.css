@@ -1,4 +1,10 @@
-body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background-color: var(--bs-body-bg);
+}
+[data-bs-theme="light"] body { background-color: #f8f9fa; }
+[data-bs-theme="dark"]  body { background-color: #1a1d20; }
+
 .card-title { font-weight: 600; }
 table code { font-size: 0.9em; }
 
