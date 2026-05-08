@@ -269,6 +269,31 @@ def healthz():
     return {"status": "ok"}, 200
 
 
+@app.route("/api/status")
+@login_required
+def api_status():
+    """JSON con servicios y contenedores para refresco en vivo sin recargar."""
+    containers, docker_err = docker_containers()
+    pb = passbolt_status(os.environ.get("PASSBOLT_URL", ""))
+    cmk = checkmk_status(
+        os.environ.get("CHECKMK_URL", ""),
+        os.environ.get("CHECKMK_USER", ""),
+        os.environ.get("CHECKMK_SECRET", ""),
+    )
+    dbs = db_status(db.engine)
+    problems, _ = find_problems()
+    return {
+        "services": [
+            {"name": "Passbolt", "status": pb[0], "detail": pb[1]},
+            {"name": "Checkmk", "status": cmk[0], "detail": cmk[1]},
+            {"name": "DB central (MariaDB)", "status": dbs[0], "detail": dbs[1]},
+        ],
+        "containers": containers,
+        "docker_err": docker_err,
+        "problem_count": len(problems),
+    }
+
+
 # ---------- Bootstrap ----------
 
 def _wait_for_db(retries: int = 30, delay: int = 2):
