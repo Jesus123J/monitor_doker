@@ -1,3 +1,16 @@
 body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
 .card-title { font-weight: 600; }
 table code { font-size: 0.9em; }
+
+.logs-box {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 0.85em;
+  padding: 1rem;
+  max-height: 500px;
+  overflow: auto;
+  margin-bottom: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

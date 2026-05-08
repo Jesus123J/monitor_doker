@@ -95,7 +95,9 @@ services:
       DASHBOARD_ADMIN_EMAIL: ${DASHBOARD_ADMIN_EMAIL}
       DASHBOARD_ADMIN_PASSWORD: ${DASHBOARD_ADMIN_PASSWORD}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # RW para que los admins puedan start/stop/restart contenedores desde el dashboard.
+      # Implica acceso total a Docker desde el dashboard: limita admins a personas de confianza.
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - backend
       - frontend

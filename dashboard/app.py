@@ -1,15 +1,22 @@
 import os
 import time
 import urllib3
-from flask import Flask, render_template, request, redirect, url_for, flash
+from functools import wraps
+from flask import (
+    Flask, render_template, request, redirect, url_for, flash, abort
+)
 from flask_login import (
     LoginManager, login_user, logout_user, login_required, current_user
 )
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, IntegrityError
 
-from models import db, User, MonitoredTarget, StatusLog
-from monitor import docker_containers, passbolt_status, checkmk_status, db_status
+from models import db, User, MonitoredTarget, StatusLog, AuditLog
+from monitor import (
+    docker_containers, passbolt_status, checkmk_status, db_status,
+    container_logs, container_stats, container_inspect, container_action,
+    find_problems, db_tables,
+)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -37,38 +44,31 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-def _wait_for_db(retries: int = 30, delay: int = 2):
-    """Espera a que la DB acepte conexiones."""
-    for i in range(retries):
-        try:
-            with app.app_context():
-                db.session.execute(text("SELECT 1"))
-            return True
-        except OperationalError:
-            time.sleep(delay)
-    return False
+def admin_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return login_manager.unauthorized()
+        if not current_user.is_admin:
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapped
 
 
-def _bootstrap():
-    """Crea las tablas y el usuario admin de seed si la DB esta vacia."""
-    with app.app_context():
-        db.create_all()
+def _audit(action: str, target: str, success: bool, detail: str = ""):
+    entry = AuditLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        action=action,
+        target=target,
+        success=success,
+        detail=detail[:1000],
+    )
+    db.session.add(entry)
+    db.session.commit()
 
-        admin_user = os.environ.get("DASHBOARD_ADMIN_USER")
-        admin_pwd = os.environ.get("DASHBOARD_ADMIN_PASSWORD")
-        admin_email = os.environ.get("DASHBOARD_ADMIN_EMAIL", "admin@local")
 
-        if admin_user and admin_pwd and User.query.count() == 0:
-            u = User(username=admin_user, email=admin_email, is_admin=True)
-            u.set_password(admin_pwd)
-            db.session.add(u)
-            try:
-                db.session.commit()
-                app.logger.info("Admin de seed creado: %s", admin_user)
-            except IntegrityError:
-                # Otro worker ya lo creo en paralelo, no es un error real.
-                db.session.rollback()
-
+# ---------- Rutas principales ----------
 
 @app.route("/")
 @login_required
@@ -81,21 +81,93 @@ def index():
         os.environ.get("CHECKMK_USER", ""),
         os.environ.get("CHECKMK_SECRET", ""),
     )
-    db_state, db_detail = db_status(db.engine)
+    dbs_state, dbs_detail = db_status(db.engine)
 
     services = [
-        {"name": "Passbolt", "status": pb_state, "detail": pb_detail},
-        {"name": "Checkmk",  "status": cmk_state, "detail": cmk_detail},
-        {"name": "DB central (MariaDB)", "status": db_state, "detail": db_detail},
+        {
+            "name": "Passbolt",
+            "status": pb_state,
+            "detail": pb_detail,
+            "url": "https://localhost:8443/",
+        },
+        {
+            "name": "Checkmk",
+            "status": cmk_state,
+            "detail": cmk_detail,
+            "url": "http://localhost:5050/monitor/",
+        },
+        {
+            "name": "DB central (MariaDB)",
+            "status": dbs_state,
+            "detail": dbs_detail,
+            "url": None,
+        },
     ]
+
+    problems, _ = find_problems()
 
     return render_template(
         "dashboard.html",
         services=services,
         containers=containers,
         docker_err=docker_err,
+        problem_count=len(problems),
     )
 
+
+@app.route("/container/<name>")
+@login_required
+def container_detail(name):
+    info = container_inspect(name)
+    if "error" in info:
+        flash(f"No pude inspeccionar {name}: {info['error']}", "danger")
+        return redirect(url_for("index"))
+    stats = container_stats(name)
+    logs = container_logs(name, lines=300)
+    return render_template(
+        "container_detail.html",
+        info=info, stats=stats, logs=logs,
+    )
+
+
+@app.route("/container/<name>/action", methods=["POST"])
+@admin_required
+def container_act(name):
+    action = request.form.get("action", "")
+    ok, detail = container_action(name, action)
+    _audit(action=action, target=name, success=ok, detail=detail)
+    flash(
+        f"{action} sobre {name}: {detail}",
+        "success" if ok else "danger",
+    )
+    return redirect(url_for("container_detail", name=name))
+
+
+@app.route("/problems")
+@login_required
+def problems():
+    items, err = find_problems()
+    return render_template("problems.html", problems=items, err=err)
+
+
+@app.route("/schema")
+@admin_required
+def schema():
+    tables, err = db_tables(db.engine)
+    return render_template("schema.html", tables=tables, err=err)
+
+
+@app.route("/audit")
+@admin_required
+def audit():
+    page_size = 100
+    rows = (AuditLog.query
+            .order_by(AuditLog.created_at.desc())
+            .limit(page_size).all())
+    return render_template("audit.html", rows=rows)
+
+
+# ---------- Auth ----------
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -129,7 +201,6 @@ def register():
 
         u = User(username=username, email=email)
         u.set_password(password)
-        # primer usuario = admin
         if User.query.count() == 0:
             u.is_admin = True
         db.session.add(u)
@@ -149,6 +220,43 @@ def logout():
 @app.route("/healthz")
 def healthz():
     return {"status": "ok"}, 200
+
+
+# ---------- Bootstrap ----------
+
+def _wait_for_db(retries: int = 30, delay: int = 2):
+    for _ in range(retries):
+        try:
+            with app.app_context():
+                db.session.execute(text("SELECT 1"))
+            return True
+        except OperationalError:
+            time.sleep(delay)
+    return False
+
+
+def _bootstrap():
+    with app.app_context():
+        try:
+            db.create_all()
+        except OperationalError as e:
+            # Race entre workers creando tablas a la vez — ya las creo el otro.
+            if "already exists" not in str(e):
+                raise
+
+        admin_user = os.environ.get("DASHBOARD_ADMIN_USER")
+        admin_pwd = os.environ.get("DASHBOARD_ADMIN_PASSWORD")
+        admin_email = os.environ.get("DASHBOARD_ADMIN_EMAIL", "admin@local")
+
+        if admin_user and admin_pwd and User.query.count() == 0:
+            u = User(username=admin_user, email=admin_email, is_admin=True)
+            u.set_password(admin_pwd)
+            db.session.add(u)
+            try:
+                db.session.commit()
+                app.logger.info("Admin de seed creado: %s", admin_user)
+            except IntegrityError:
+                db.session.rollback()
 
 
 if _wait_for_db():

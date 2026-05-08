@@ -1,99 +1,88 @@
-# Stack Passbolt + Checkmk + Dashboard centralizado
+<div align="center">
+  <img src="docs/utp-logo.png" alt="Universidad Tecnologica del Peru" width="220">
 
-Proyecto en Docker Compose con:
+  # Monitor Docker
+  ### Stack contenerizado de Passbolt + Checkmk + Dashboard centralizado
 
-- **db-central** — MariaDB unica que aloja `passbolt` y `dashboard`.
-- **passbolt** — gestor de contrasenas (CE), conectado a la DB central.
-- **checkmk** — monitoreo de servidores. Mantiene su storage interno (RRDtool) por diseno; el dashboard lo consulta via Web API.
-- **dashboard** — web custom en Flask con **registro/login de usuarios** que muestra el estado de Passbolt, Checkmk, la DB y todos los contenedores.
-- **nginx** — reverse proxy delante de todo.
+  *Proyecto academico — Universidad Tecnologica del Peru*
+</div>
 
-```
-docker-compose.yml
-.env.example
-db/init/01-init-databases.sh        <- crea base "dashboard" + usuario
-dashboard/                          <- app Flask (auth + monitor)
-nginx/nginx.conf
-```
+---
 
-## 1. Configurar variables
+## Herramientas y versiones
 
-```bash
-cp .env.example .env
-# edita .env y cambia TODOS los passwords
-```
+| Categoria | Herramienta | Version |
+|---|---|---|
+| Orquestacion | Docker Engine | 25.0.3 |
+| Orquestacion | Docker Compose | v2.24 |
+| Base de datos | MariaDB | 11 |
+| Gestor de contrasenas | Passbolt CE | latest-ce |
+| Monitoreo | Checkmk Raw Edition | 2.4 |
+| Reverse proxy | Nginx | 1.27 (alpine) |
+| Lenguaje (dashboard) | Python | 3.12 |
+| Framework web | Flask | 3.0 |
+| ORM | SQLAlchemy + Flask-SQLAlchemy | 2.0 / 3.1 |
+| Auth | Flask-Login + Werkzeug | 0.6 / 3.0 |
+| Driver MySQL | PyMySQL | 1.1 |
+| SDK Docker | docker (Python) | 7.1 |
+| HTTP server | Gunicorn | 23.0 |
+| HTTP client | Requests | 2.32 |
+| UI | Bootstrap + Bootstrap Icons | 5.3 / 1.11 |
 
-## 2. Levantar el stack
+---
 
-```bash
-docker compose up -d
-```
-
-Espera a que `db-central` quede `healthy` (el resto depende de el).
-
-## 3. Crear el usuario "automation" en Checkmk
-
-El dashboard usa la Web API de Checkmk para listar hosts. Hay que crear el usuario una sola vez:
-
-1. Abre `http://checkmk.local/` (o `http://localhost:5000/monitor` segun como expongas Checkmk).
-2. Login: `cmkadmin` / el `CMK_PASSWORD` que pusiste en `.env`.
-3. Ve a **Setup → Users → Add user**.
-4. Username: `automation`, Roles: `Administrator`. Genera el secret.
-5. Copia el secret al `.env` en `CMK_AUTOMATION_SECRET` y reinicia el dashboard:
-   ```bash
-   docker compose up -d dashboard
-   ```
-
-## 4. Configurar Passbolt
-
-Primer arranque de Passbolt necesita crear el usuario admin:
-
-```bash
-docker compose exec passbolt su -m -c \
-  "/usr/share/php/passbolt/bin/cake passbolt register_user \
-   -u admin@example.com -f Admin -l User -r admin" \
-  -s /bin/sh www-data
-```
-
-Toma el link que imprime y completa el registro en el navegador.
-
-## 5. Entrar al dashboard custom
-
-- `http://localhost/` → registro/login del dashboard.
-- El **primer usuario que se registra queda como admin**.
-- Una vez dentro veras:
-  - Tarjetas de estado de Passbolt, Checkmk y la DB central.
-  - Tabla con todos los contenedores (running / exited / health).
-
-## Esquema de la DB central
+## Arquitectura
 
 ```
-db-central (MariaDB 11)
-├── passbolt        (la usa Passbolt)
-└── dashboard
-    ├── users               <- registro/login
-    ├── monitored_targets   <- catalogo de cosas a monitorear
-    └── status_log          <- historico de chequeos
+                        ┌─────────────┐
+                        │   nginx     │  reverse proxy (80/443)
+                        └──────┬──────┘
+                               │
+         ┌─────────────────────┼─────────────────────┐
+         │                     │                     │
+    ┌────▼─────┐          ┌────▼─────┐          ┌────▼─────┐
+    │ Passbolt │          │ Dashboard│          │ Checkmk  │
+    │   (CE)   │          │ (Flask)  │          │   (raw)  │
+    └────┬─────┘          └────┬─────┘          └──────────┘
+         │                     │                     ▲
+         │                     │  docker.sock        │ Web API
+         │                     │  (read/write)       │
+         │                     │                     │
+    ┌────▼─────────────────────▼─────┐               │
+    │      db-central (MariaDB)      │               │
+    │  ┌─────────┐  ┌──────────────┐ │◄──────────────┘
+    │  │passbolt │  │  dashboard   │ │
+    │  └─────────┘  └──────────────┘ │
+    └────────────────────────────────┘
 ```
 
-## Por que Checkmk no comparte la DB
+### Componentes
 
-Checkmk no soporta MySQL/MariaDB para sus metricas (usa RRDtool + SQLite por sitio).
-El dashboard cubre el "todo en un solo lugar" consultando su Web API y guardando
-los resultados en `dashboard.status_log` si quieres historizar.
+- **nginx** — Reverse proxy en los puertos 80/443.
+- **db-central** — Una sola instancia de MariaDB con dos bases:
+  - `passbolt` — usada por Passbolt para almacenar contrasenas cifradas.
+  - `dashboard` — usuarios del panel + bitacora de monitoreo y auditoria.
+- **passbolt** — Gestor de contrasenas con cifrado E2E via PGP, conectado a la DB central.
+- **checkmk** — Monitoreo de servidores. Mantiene su propio storage interno (RRDtool) por diseno; el dashboard lo consulta via Web API.
+- **dashboard** — Aplicacion web custom con:
+  - Registro y login de usuarios (passwords hasheados con scrypt).
+  - Vista global del estado de Passbolt, Checkmk y la DB central.
+  - Listado de contenedores (CPU, memoria, red, health, restart count).
+  - Detalle por contenedor con logs en vivo, mounts, env vars (con secrets ocultos).
+  - Modo experto (admin): start / stop / restart de contenedores con bitacora de auditoria.
+  - Pagina de problemas (contenedores unhealthy, en restart loop, exited con error).
+  - Visor del esquema de la DB del dashboard.
 
-## Generar certs autofirmados para Passbolt (dev)
+### Esquema de la DB del dashboard
 
-```bash
-mkdir -p nginx/certs
-openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
-  -keyout nginx/certs/passbolt.key \
-  -out    nginx/certs/passbolt.crt \
-  -subj "/CN=passbolt.local"
-```
+| Tabla | Proposito |
+|---|---|
+| `users` | Cuentas de acceso al dashboard |
+| `monitored_targets` | Catalogo de objetivos a monitorear |
+| `status_log` | Historico de chequeos de estado |
+| `audit_log` | Bitacora de acciones operativas (start/stop/restart) |
 
-Y agrega a `/etc/hosts` (o `C:\Windows\System32\drivers\etc\hosts`):
+### Redes Docker
 
-```
-127.0.0.1 passbolt.local checkmk.local
-```
+- **backend** — db-central, passbolt, checkmk, dashboard (no expuesta).
+- **frontend** — nginx, passbolt, checkmk, dashboard (puertos publicados).

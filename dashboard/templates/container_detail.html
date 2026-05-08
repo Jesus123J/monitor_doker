@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{{ info.name }}{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">
+    <i class="bi bi-box-seam"></i> {{ info.name }}
+    <small class="text-muted fs-6">{{ info.id_short }}</small>
+  </h3>
+  <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Volver
+  </a>
+</div>
+
+{% if current_user.is_admin %}
+<div class="card shadow-sm mb-3 border-warning">
+  <div class="card-body">
+    <h6 class="card-title text-warning">
+      <i class="bi bi-shield-lock-fill"></i> Acciones (admin)
+    </h6>
+    <p class="small text-muted mb-2">
+      Cada accion queda registrada en <a href="{{ url_for('audit') }}">Auditoria</a>.
+    </p>
+    <form method="post" action="{{ url_for('container_act', name=info.name) }}" class="d-inline">
+      <button name="action" value="start" class="btn btn-success btn-sm">
+        <i class="bi bi-play-fill"></i> Start
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('container_act', name=info.name) }}" class="d-inline"
+          onsubmit="return confirm('Detener {{ info.name }}?');">
+      <button name="action" value="stop" class="btn btn-danger btn-sm">
+        <i class="bi bi-stop-fill"></i> Stop
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('container_act', name=info.name) }}" class="d-inline"
+          onsubmit="return confirm('Reiniciar {{ info.name }}?');">
+      <button name="action" value="restart" class="btn btn-warning btn-sm">
+        <i class="bi bi-arrow-clockwise"></i> Restart
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">Info</div>
+      <ul class="list-group list-group-flush small">
+        <li class="list-group-item"><b>Imagen:</b> {{ info.image }}</li>
+        <li class="list-group-item"><b>Estado:</b> {{ info.status }}</li>
+        <li class="list-group-item"><b>Iniciado:</b> {{ info.started_at }}</li>
+        <li class="list-group-item"><b>Restart count:</b> {{ info.restart_count }}</li>
+        <li class="list-group-item"><b>Redes:</b> {{ info.networks|join(', ') }}</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">Recursos (snapshot)</div>
+      <div class="card-body">
+        {% if stats.error %}
+          <p class="text-danger small">{{ stats.error }}</p>
+        {% else %}
+          <p class="mb-1"><b>CPU:</b> {{ stats.cpu_pct }}%</p>
+          <div class="progress mb-2" style="height: 6px;">
+            <div class="progress-bar bg-info" style="width: {{ stats.cpu_pct }}%"></div>
+          </div>
+          <p class="mb-1"><b>Memoria:</b> {{ stats.mem_used_mb }} / {{ stats.mem_limit_mb }} MB ({{ stats.mem_pct }}%)</p>
+          <div class="progress mb-2" style="height: 6px;">
+            <div class="progress-bar bg-success" style="width: {{ stats.mem_pct }}%"></div>
+          </div>
+          <p class="mb-0 small text-muted">
+            Red: rx {{ stats.net_rx_mb }} MB / tx {{ stats.net_tx_mb }} MB
+          </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">Volumenes / mounts</div>
+      <ul class="list-group list-group-flush small font-monospace">
+        {% for m in info.mounts %}<li class="list-group-item">{{ m }}</li>{% endfor %}
+      </ul>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">
+        Variables de entorno
+        <small class="text-muted">(secrets ocultos)</small>
+      </div>
+      <ul class="list-group list-group-flush small font-monospace">
+        {% for e in info.env %}<li class="list-group-item">{{ e }}</li>{% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Logs (ultimas 300 lineas)</span>
+    <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">
+      <i class="bi bi-arrow-clockwise"></i> Refrescar
+    </button>
+  </div>
+  <pre class="logs-box mb-0">{{ logs }}</pre>
+</div>
+
+{% endblock %}

@@ -53,3 +53,19 @@ class StatusLog(db.Model):
     checked_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     target = db.relationship("MonitoredTarget", backref="logs")
+
+
+class AuditLog(db.Model):
+    """Bitacora de acciones operativas (start/stop/restart de contenedores)."""
+    __tablename__ = "audit_log"
+
+    id = db.Column(db.BigInteger, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    username = db.Column(db.String(64), nullable=False)
+    action = db.Column(db.String(32), nullable=False)
+    target = db.Column(db.String(128), nullable=False)
+    success = db.Column(db.Boolean, nullable=False, default=True)
+    detail = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    user = db.relationship("User", backref="audit_logs")

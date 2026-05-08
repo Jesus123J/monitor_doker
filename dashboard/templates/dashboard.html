@@ -10,6 +10,13 @@
 
 {% block content %}
 
+{% if problem_count %}
+  <a href="{{ url_for('problems') }}" class="alert alert-warning d-block text-decoration-none">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    Hay <strong>{{ problem_count }}</strong> contenedor(es) con problemas. Click para verlos.
+  </a>
+{% endif %}
+
 <h3>Servicios principales</h3>
 <div class="row g-3 mb-4">
   {% for s in services %}
@@ -20,7 +27,12 @@
             <h5 class="card-title mb-0">{{ s.name }}</h5>
             <span class="badge text-bg-{{ badge[s.status] }}">{{ s.status|upper }}</span>
           </div>
-          <p class="text-muted small mt-2 mb-0">{{ s.detail }}</p>
+          <p class="text-muted small mt-2 mb-2">{{ s.detail }}</p>
+          {% if s.url %}
+            <a href="{{ s.url }}" target="_blank" class="btn btn-sm btn-outline-primary">
+              Abrir <i class="bi bi-box-arrow-up-right"></i>
+            </a>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -43,18 +55,20 @@
             <th>Imagen</th>
             <th>Estado</th>
             <th>Health</th>
+            <th>Restarts</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           {% for c in containers %}
             <tr>
-              <td><code>{{ c.name }}</code></td>
+              <td><code>{{ c.name }}</code> <small class="text-muted">{{ c.id_short }}</small></td>
               <td class="text-muted small">{{ c.image }}</td>
               <td>
                 {% if c.status == 'running' %}
                   <span class="badge text-bg-success">running</span>
                 {% elif c.status == 'exited' %}
-                  <span class="badge text-bg-danger">exited (apagado)</span>
+                  <span class="badge text-bg-danger">exited (code {{ c.exit_code }})</span>
                 {% else %}
                   <span class="badge text-bg-secondary">{{ c.status }}</span>
                 {% endif %}
@@ -68,9 +82,15 @@
                   <span class="text-muted small">{{ c.health }}</span>
                 {% endif %}
               </td>
+              <td class="text-muted small">{{ c.restart_count }}</td>
+              <td>
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('container_detail', name=c.name) }}">
+                  <i class="bi bi-search"></i> Detalle
+                </a>
+              </td>
             </tr>
           {% else %}
-            <tr><td colspan="4" class="text-center text-muted">Sin contenedores</td></tr>
+            <tr><td colspan="6" class="text-center text-muted">Sin contenedores</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -78,9 +98,7 @@
   </div>
 {% endif %}
 
-<p class="text-muted small mt-3">
-  Auto-actualiza en 30s.
-</p>
+<p class="text-muted small mt-3">Auto-actualiza en 30s.</p>
 <script>setTimeout(() => location.reload(), 30000);</script>
 
 {% endblock %}
