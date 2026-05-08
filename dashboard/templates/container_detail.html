@@ -103,13 +103,85 @@
 </div>
 
 <div class="card shadow-sm">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span>Logs (ultimas 300 lineas)</span>
-    <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">
-      <i class="bi bi-arrow-clockwise"></i> Refrescar
-    </button>
+  <div class="card-header">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <span>Logs (ultimas 300 lineas)</span>
+      <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">
+        <i class="bi bi-arrow-clockwise"></i> Refrescar
+      </button>
+    </div>
+    <div class="row g-2">
+      <div class="col-md-7">
+        <input type="text" id="log-filter" class="form-control form-control-sm"
+               placeholder="Filtrar lineas (regex permitido)...">
+      </div>
+      <div class="col-md-3 d-flex gap-2 align-items-center">
+        <div class="form-check small">
+          <input class="form-check-input log-level" type="checkbox" value="error" id="lv-error" checked>
+          <label class="form-check-label text-danger" for="lv-error">ERROR</label>
+        </div>
+        <div class="form-check small">
+          <input class="form-check-input log-level" type="checkbox" value="warn" id="lv-warn" checked>
+          <label class="form-check-label text-warning" for="lv-warn">WARN</label>
+        </div>
+        <div class="form-check small">
+          <input class="form-check-input log-level" type="checkbox" value="info" id="lv-info" checked>
+          <label class="form-check-label" for="lv-info">INFO</label>
+        </div>
+      </div>
+      <div class="col-md-2 text-end">
+        <small class="text-muted" id="log-count">- / -</small>
+      </div>
+    </div>
   </div>
-  <pre class="logs-box mb-0">{{ logs }}</pre>
+  <pre class="logs-box mb-0" id="log-container">{{ logs }}</pre>
 </div>
+
+<script>
+(() => {
+  const raw = document.getElementById("log-container").textContent;
+  const lines = raw.split("\n");
+  const container = document.getElementById("log-container");
+  const filterIn = document.getElementById("log-filter");
+  const counter = document.getElementById("log-count");
+  const levels = document.querySelectorAll(".log-level");
+
+  function classify(line) {
+    const u = line.toUpperCase();
+    if (u.includes("ERROR") || u.includes("FATAL") || u.includes("CRITICAL")) return "error";
+    if (u.includes("WARN")) return "warn";
+    return "info";
+  }
+
+  function escapeHTML(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function render() {
+    const enabled = new Set(
+      Array.from(levels).filter(c => c.checked).map(c => c.value)
+    );
+    let pattern = null;
+    try { pattern = filterIn.value ? new RegExp(filterIn.value, "i") : null; } catch (e) {}
+
+    let shown = 0;
+    const html = lines.map(l => {
+      const lv = classify(l);
+      if (!enabled.has(lv)) return null;
+      if (pattern && !pattern.test(l)) return null;
+      shown++;
+      const cls = lv === "error" ? "log-error" : lv === "warn" ? "log-warn" : "";
+      return `<span class="${cls}">${escapeHTML(l)}</span>`;
+    }).filter(Boolean).join("\n");
+
+    container.innerHTML = html;
+    counter.textContent = `${shown} / ${lines.length}`;
+  }
+
+  filterIn.addEventListener("input", render);
+  levels.forEach(c => c.addEventListener("change", render));
+  render();
+})();
+</script>
 
 {% endblock %}

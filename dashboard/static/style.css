@@ -20,3 +20,5 @@ table code { font-size: 0.9em; }
   white-space: pre-wrap;
   word-break: break-all;
 }
+.log-error { color: #ff6b6b; font-weight: 600; }
+.log-warn  { color: #ffd166; }
