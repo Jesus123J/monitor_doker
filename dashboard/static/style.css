@@ -22,3 +22,18 @@ table code { font-size: 0.9em; }
 }
 .log-error { color: #ff6b6b; font-weight: 600; }
 .log-warn  { color: #ffd166; }
+
+.live-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #6c757d;
+}
+.live-ok   { background: #198754; box-shadow: 0 0 0 0 rgba(25,135,84,.7); animation: pulse 2s infinite; }
+.live-fail { background: #dc3545; }
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(25,135,84,.6); }
+  70%  { box-shadow: 0 0 0 8px rgba(25,135,84,0); }
+  100% { box-shadow: 0 0 0 0 rgba(25,135,84,0); }
+}

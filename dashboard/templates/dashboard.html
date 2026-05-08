@@ -20,14 +20,14 @@
 <h3>Servicios principales</h3>
 <div class="row g-3 mb-4">
   {% for s in services %}
-    <div class="col-md-4">
+    <div class="col-md-4" data-svc="{{ s.name }}">
       <div class="card shadow-sm h-100">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center">
             <h5 class="card-title mb-0">{{ s.name }}</h5>
             <span class="badge text-bg-{{ badge[s.status] }}">{{ s.status|upper }}</span>
           </div>
-          <p class="text-muted small mt-2 mb-2">{{ s.detail }}</p>
+          <p class="text-muted small mt-2 mb-2 svc-detail">{{ s.detail }}</p>
           {% if s.url %}
             <a href="{{ s.url }}" target="_blank" class="btn btn-sm btn-outline-primary">
               Abrir <i class="bi bi-box-arrow-up-right"></i>
@@ -59,7 +59,7 @@
             <th></th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="containers-tbody">
           {% for c in containers %}
             <tr>
               <td><code>{{ c.name }}</code> <small class="text-muted">{{ c.id_short }}</small></td>
@@ -98,7 +98,70 @@
   </div>
 {% endif %}
 
-<p class="text-muted small mt-3">Auto-actualiza en 30s.</p>
-<script>setTimeout(() => location.reload(), 30000);</script>
+<div class="d-flex align-items-center text-muted small mt-3">
+  <span class="live-dot live-ok me-2"></span>
+  <span>Conectado · actualizado hace <span id="last-update">0</span>s</span>
+</div>
+
+<script>
+(() => {
+  const badgeMap = {up:'success', down:'danger', warning:'warning', unknown:'secondary'};
+  const dot = document.querySelector(".live-dot");
+  const updEl = document.getElementById("last-update");
+  let lastTs = Date.now();
+
+  setInterval(() => updEl.textContent = Math.round((Date.now()-lastTs)/1000), 1000);
+
+  async function tick() {
+    try {
+      const r = await fetch("/api/status", {cache: "no-store"});
+      if (!r.ok) throw new Error(r.status);
+      const data = await r.json();
+
+      // Tarjetas
+      document.querySelectorAll("[data-svc]").forEach((card, i) => {
+        const s = data.services[i];
+        const badge = card.querySelector(".badge");
+        badge.className = `badge text-bg-${badgeMap[s.status] || 'secondary'}`;
+        badge.textContent = s.status.toUpperCase();
+        card.querySelector(".svc-detail").textContent = s.detail;
+      });
+
+      // Filas de contenedores
+      const tbody = document.getElementById("containers-tbody");
+      if (tbody && !data.docker_err) {
+        tbody.innerHTML = data.containers.map(c => {
+          const stTag = c.status === 'running'
+            ? '<span class="badge text-bg-success">running</span>'
+            : c.status === 'exited'
+              ? `<span class="badge text-bg-danger">exited (code ${c.exit_code})</span>`
+              : `<span class="badge text-bg-secondary">${c.status}</span>`;
+          const hTag = c.health === 'healthy'
+            ? '<span class="badge text-bg-success">healthy</span>'
+            : ['unhealthy','starting'].includes(c.health)
+              ? `<span class="badge text-bg-warning">${c.health}</span>`
+              : `<span class="text-muted small">${c.health}</span>`;
+          return `<tr>
+            <td><code>${c.name}</code> <small class="text-muted">${c.id_short}</small></td>
+            <td class="text-muted small">${c.image}</td>
+            <td>${stTag}</td><td>${hTag}</td>
+            <td class="text-muted small">${c.restart_count}</td>
+            <td><a class="btn btn-sm btn-outline-secondary" href="/container/${c.name}">
+              <i class="bi bi-search"></i> Detalle</a></td>
+          </tr>`;
+        }).join("");
+      }
+
+      lastTs = Date.now();
+      dot.classList.remove("live-fail");
+      dot.classList.add("live-ok");
+    } catch (e) {
+      dot.classList.remove("live-ok");
+      dot.classList.add("live-fail");
+    }
+  }
+  setInterval(tick, 10000);
+})();
+</script>
 
 {% endblock %}
