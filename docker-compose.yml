@@ -52,6 +52,12 @@ services:
         "--",
         "/docker-entrypoint.sh"
       ]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fk https://localhost/healthcheck/status.json || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
   checkmk:
     image: checkmk/check-mk-raw:latest
@@ -73,6 +79,12 @@ services:
       - frontend
     ulimits:
       nofile: 1024
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:5000/${CMK_SITE_ID}/check_mk/login.py >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
   dashboard:
     build: ./dashboard
@@ -101,6 +113,12 @@ services:
     networks:
       - backend
       - frontend
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz', timeout=3).status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   nginx:
     image: nginx:1.27-alpine
@@ -118,6 +136,12 @@ services:
       - ./nginx/certs:/etc/nginx/certs:ro
     networks:
       - frontend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --tries=1 --spider http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 networks:
   backend:
