@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+# Shell scripts SIEMPRE con LF, sino bash en Linux falla con
+# "/bin/bash^M: bad interpreter"
+*.sh         text eol=lf
+*.bash       text eol=lf
+
+# Binarios
+*.png        binary
+*.jpg        binary
+*.ico        binary
