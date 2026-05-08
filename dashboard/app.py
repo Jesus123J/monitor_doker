@@ -157,6 +157,53 @@ def schema():
     return render_template("schema.html", tables=tables, err=err)
 
 
+@app.route("/users")
+@admin_required
+def users_list():
+    users = User.query.order_by(User.id.asc()).all()
+    return render_template("users.html", users=users)
+
+
+@app.route("/users/<int:user_id>/toggle-admin", methods=["POST"])
+@admin_required
+def users_toggle_admin(user_id):
+    u = User.query.get_or_404(user_id)
+
+    # No permitir demoverse si seria el ultimo admin
+    if u.is_admin and User.query.filter_by(is_admin=True).count() == 1:
+        flash("No puedes demover al ultimo admin del sistema.", "warning")
+        return redirect(url_for("users_list"))
+
+    u.is_admin = not u.is_admin
+    db.session.commit()
+    _audit(action=("promote" if u.is_admin else "demote"),
+           target=u.username, success=True,
+           detail=f"is_admin={u.is_admin}")
+    flash(f"{u.username} ahora es {'admin' if u.is_admin else 'usuario normal'}.", "success")
+    return redirect(url_for("users_list"))
+
+
+@app.route("/users/<int:user_id>/delete", methods=["POST"])
+@admin_required
+def users_delete(user_id):
+    u = User.query.get_or_404(user_id)
+
+    if u.id == current_user.id:
+        flash("No puedes borrar tu propia cuenta.", "warning")
+        return redirect(url_for("users_list"))
+
+    if u.is_admin and User.query.filter_by(is_admin=True).count() == 1:
+        flash("No puedes borrar al ultimo admin.", "warning")
+        return redirect(url_for("users_list"))
+
+    username = u.username
+    db.session.delete(u)
+    db.session.commit()
+    _audit(action="delete_user", target=username, success=True)
+    flash(f"Usuario {username} eliminado.", "success")
+    return redirect(url_for("users_list"))
+
+
 @app.route("/audit")
 @admin_required
 def audit():
