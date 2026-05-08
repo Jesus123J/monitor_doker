@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Crear cuenta{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-5">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h4 class="card-title mb-3">Crear cuenta</h4>
+        <p class="text-muted small">El primer usuario registrado sera administrador.</p>
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label">Usuario</label>
+            <input class="form-control" name="username" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input class="form-control" type="email" name="email" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Password (min. 8 caracteres)</label>
+            <input class="form-control" type="password" name="password" minlength="8" required>
+          </div>
+          <button class="btn btn-success w-100" type="submit">Registrar</button>
+        </form>
+        <hr>
+        <p class="mb-0 text-center">
+          <a href="{{ url_for('login') }}">Ya tengo cuenta</a>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

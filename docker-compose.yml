@@ -1,0 +1,130 @@
+services:
+
+  db-central:
+    image: mariadb:11
+    container_name: db-central
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: passbolt
+      MYSQL_USER: ${PASSBOLT_DB_USER}
+      MYSQL_PASSWORD: ${PASSBOLT_DB_PASSWORD}
+      DASHBOARD_DB_USER: ${DASHBOARD_DB_USER}
+      DASHBOARD_DB_PASSWORD: ${DASHBOARD_DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  passbolt:
+    image: passbolt/passbolt:latest-ce
+    container_name: passbolt
+    restart: unless-stopped
+    depends_on:
+      db-central:
+        condition: service_healthy
+    environment:
+      APP_FULL_BASE_URL: https://${PASSBOLT_DOMAIN}
+      DATASOURCES_DEFAULT_HOST: db-central
+      DATASOURCES_DEFAULT_USERNAME: ${PASSBOLT_DB_USER}
+      DATASOURCES_DEFAULT_PASSWORD: ${PASSBOLT_DB_PASSWORD}
+      DATASOURCES_DEFAULT_DATABASE: passbolt
+    volumes:
+      - passbolt_gpg:/etc/passbolt/gpg
+      - passbolt_jwt:/etc/passbolt/jwt
+    ports:
+      - "8443:443"
+    networks:
+      - backend
+      - frontend
+    command:
+      [
+        "/usr/bin/wait-for.sh",
+        "-t", "0",
+        "db-central:3306",
+        "--",
+        "/docker-entrypoint.sh"
+      ]
+
+  checkmk:
+    image: checkmk/check-mk-raw:latest
+    container_name: checkmk
+    hostname: checkmk
+    restart: unless-stopped
+    environment:
+      CMK_SITE_ID: ${CMK_SITE_ID}
+      CMK_PASSWORD: ${CMK_PASSWORD}
+    volumes:
+      - checkmk_sites:/omd/sites
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "5050:5000"
+    tmpfs:
+      - /opt/omd/sites/${CMK_SITE_ID}/tmp:uid=1000,gid=1000
+    networks:
+      - backend
+      - frontend
+    ulimits:
+      nofile: 1024
+
+  dashboard:
+    build: ./dashboard
+    container_name: dashboard
+    restart: unless-stopped
+    depends_on:
+      db-central:
+        condition: service_healthy
+    environment:
+      FLASK_SECRET_KEY: ${DASHBOARD_SECRET_KEY}
+      DB_HOST: db-central
+      DB_USER: ${DASHBOARD_DB_USER}
+      DB_PASSWORD: ${DASHBOARD_DB_PASSWORD}
+      DB_NAME: dashboard
+      CHECKMK_URL: http://checkmk:5000/${CMK_SITE_ID}
+      CHECKMK_USER: automation
+      CHECKMK_SECRET: ${CMK_AUTOMATION_SECRET}
+      PASSBOLT_URL: https://passbolt
+      DASHBOARD_ADMIN_USER: ${DASHBOARD_ADMIN_USER}
+      DASHBOARD_ADMIN_EMAIL: ${DASHBOARD_ADMIN_EMAIL}
+      DASHBOARD_ADMIN_PASSWORD: ${DASHBOARD_ADMIN_PASSWORD}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - backend
+      - frontend
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: nginx
+    restart: unless-stopped
+    depends_on:
+      - passbolt
+      - dashboard
+      - checkmk
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    networks:
+      - frontend
+
+networks:
+  backend:
+    driver: bridge
+  frontend:
+    driver: bridge
+
+volumes:
+  db_data:
+  passbolt_gpg:
+  passbolt_jwt:
+  checkmk_sites:

@@ -1,0 +1,6 @@
+.env
+.claude/
+nginx/certs/
+__pycache__/
+*.pyc
+.venv/
