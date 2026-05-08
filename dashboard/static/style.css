@@ -23,6 +23,18 @@ table code { font-size: 0.9em; }
 .log-error { color: #ff6b6b; font-weight: 600; }
 .log-warn  { color: #ffd166; }
 
+/* Mobile-friendly */
+@media (max-width: 768px) {
+  .table-responsive table { font-size: 0.85rem; }
+  .table-responsive code { font-size: 0.85em; word-break: break-word; }
+  .btn-sm { min-height: 36px; }
+  .logs-box { font-size: 0.75em; padding: 0.6rem; }
+  h3 { font-size: 1.3rem; }
+  .card-body { padding: 0.85rem; }
+}
+.btn { min-height: 38px; }
+.form-control, .form-select { min-height: 38px; }
+
 .live-dot {
   display: inline-block;
   width: 10px;
