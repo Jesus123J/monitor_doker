@@ -23,6 +23,46 @@ services:
       retries: 15
       start_period: 30s
 
+  db-mirror:
+    image: mariadb:11
+    container_name: db-mirror
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - db_mirror_data:/var/lib/mysql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  db-sync:
+    build: ./db-sync
+    container_name: db-sync
+    restart: unless-stopped
+    depends_on:
+      db-central:
+        condition: service_healthy
+      db-mirror:
+        condition: service_healthy
+    environment:
+      SOURCE_HOST: db-central
+      SOURCE_USER: root
+      SOURCE_PASSWORD: ${DB_ROOT_PASSWORD}
+      TARGET_HOST: db-mirror
+      TARGET_USER: root
+      TARGET_PASSWORD: ${DB_ROOT_PASSWORD}
+      DATABASES: passbolt dashboard
+      SYNC_INTERVAL_HOURS: 2
+    volumes:
+      - db_sync_status:/var/lib/db-sync
+    networks:
+      - backend
+
   passbolt:
     image: passbolt/passbolt:latest-ce
     container_name: passbolt
@@ -106,10 +146,15 @@ services:
       DASHBOARD_ADMIN_USER: ${DASHBOARD_ADMIN_USER}
       DASHBOARD_ADMIN_EMAIL: ${DASHBOARD_ADMIN_EMAIL}
       DASHBOARD_ADMIN_PASSWORD: ${DASHBOARD_ADMIN_PASSWORD}
+      MIRROR_HOST: db-mirror
+      MIRROR_STATUS_FILE: /var/lib/db-sync/last_sync
+      DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
     volumes:
       # RW para que los admins puedan start/stop/restart contenedores desde el dashboard.
       # Implica acceso total a Docker desde el dashboard: limita admins a personas de confianza.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Solo lectura del status del db-sync para mostrar ultimo sync en /mirror
+      - db_sync_status:/var/lib/db-sync:ro
     networks:
       - backend
       - frontend
@@ -151,6 +196,8 @@ networks:
 
 volumes:
   db_data:
+  db_mirror_data:
+  db_sync_status:
   passbolt_gpg:
   passbolt_jwt:
   checkmk_sites:

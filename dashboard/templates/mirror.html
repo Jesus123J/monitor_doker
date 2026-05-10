@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Mirror DB{% endblock %}
+{% block content %}
+
+<h3><i class="bi bi-hdd-stack-fill"></i> Mirror de la DB central</h3>
+<p class="text-muted small">
+  Snapshot completo de <code>db-central</code> hacia <code>db-mirror</code> cada 2 horas.
+</p>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">Ultimo sync</div>
+      <div class="card-body">
+        {% if info.last_sync %}
+          {% if info.result == "OK" %}
+            <span class="badge text-bg-success mb-2">OK</span>
+          {% else %}
+            <span class="badge text-bg-danger mb-2">{{ info.result }}</span>
+          {% endif %}
+          <p class="mb-1"><b>Cuando:</b> {{ info.last_sync }}</p>
+          {% if info.age_minutes is not none %}
+            <p class="mb-1"><b>Hace:</b> {{ info.age_minutes }} min</p>
+          {% endif %}
+          {% if info.elapsed %}
+            <p class="mb-0"><b>Duro:</b> {{ info.elapsed }}</p>
+          {% endif %}
+        {% else %}
+          <p class="text-muted mb-0">
+            Aun no hay sync registrado. Esto es normal si el stack
+            acaba de arrancar — el primer sync corre al inicio y luego
+            cada 2 horas.
+          </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">Estado de la conexion al mirror</div>
+      <div class="card-body">
+        {% if info.mirror_error %}
+          <span class="badge text-bg-danger">offline</span>
+          <p class="small text-muted mt-2 mb-0 font-monospace">{{ info.mirror_error }}</p>
+        {% else %}
+          <span class="badge text-bg-success">conectado</span>
+          <p class="small text-muted mt-2 mb-0">
+            db-mirror responde a queries.
+          </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% for t in info.tables %}
+  <div class="card shadow-sm mb-3">
+    <div class="card-header">
+      <i class="bi bi-database"></i> Base <strong>{{ t.db }}</strong> en el mirror
+    </div>
+    {% if t.error %}
+      <div class="card-body text-muted small font-monospace">{{ t.error }}</div>
+    {% else %}
+      <table class="table table-sm mb-0">
+        <thead class="table-light">
+          <tr><th>Tabla</th><th class="text-end">Filas (aprox)</th></tr>
+        </thead>
+        <tbody>
+          {% for it in t.items %}
+            <tr>
+              <td><code>{{ it.name }}</code></td>
+              <td class="text-end">{{ it.rows }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="2" class="text-center text-muted">Sin tablas (sync pendiente?)</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </div>
+{% endfor %}
+
+<p class="text-muted small mt-3">
+  <i class="bi bi-info-circle"></i> El mirror es de <em>solo lectura recomendada</em>:
+  la proxima sync sobreescribe los datos.
+</p>
+
+{% endblock %}
