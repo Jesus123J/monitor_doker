@@ -15,7 +15,7 @@ from models import db, User, MonitoredTarget, StatusLog, AuditLog
 from monitor import (
     docker_containers, passbolt_status, checkmk_status, db_status,
     container_logs, container_stats, container_inspect, container_action,
-    find_problems, db_tables,
+    find_problems, db_tables, mirror_status,
 )
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -202,6 +202,18 @@ def users_delete(user_id):
     _audit(action="delete_user", target=username, success=True)
     flash(f"Usuario {username} eliminado.", "success")
     return redirect(url_for("users_list"))
+
+
+@app.route("/mirror")
+@login_required
+def mirror():
+    info = mirror_status(
+        status_file=os.environ.get("MIRROR_STATUS_FILE", "/var/lib/db-sync/last_sync"),
+        mirror_host=os.environ.get("MIRROR_HOST", "db-mirror"),
+        mirror_user="root",
+        mirror_password=os.environ.get("DB_ROOT_PASSWORD", ""),
+    )
+    return render_template("mirror.html", info=info)
 
 
 @app.route("/audit")

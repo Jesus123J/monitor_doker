@@ -213,6 +213,59 @@ def db_status(engine):
         return "down", str(e)
 
 
+# ---------- Estado del mirror DB ----------
+
+def mirror_status(status_file: str, mirror_host: str, mirror_user: str, mirror_password: str):
+    """Lee el archivo de estado del db-sync y consulta tablas/filas en el mirror."""
+    import os
+    from datetime import datetime, timezone
+
+    info = {"last_sync": None, "result": "unknown", "elapsed": None,
+            "age_minutes": None, "tables": []}
+
+    if os.path.isfile(status_file):
+        try:
+            with open(status_file) as f:
+                line = f.read().strip()
+            # Formato: "OK 2026-05-10T... elapsed=Xs dbs=passbolt dashboard"
+            #     o:  "FAIL 2026-05-10T..."
+            parts = line.split()
+            info["result"] = parts[0]
+            info["last_sync"] = parts[1]
+            for p in parts[2:]:
+                if p.startswith("elapsed="):
+                    info["elapsed"] = p.split("=", 1)[1]
+            ts = datetime.fromisoformat(info["last_sync"])
+            now = datetime.now(timezone.utc).astimezone(ts.tzinfo)
+            info["age_minutes"] = round((now - ts).total_seconds() / 60, 1)
+        except Exception as e:
+            info["error_status"] = str(e)
+
+    # Consultar tablas en el mirror
+    try:
+        from sqlalchemy import create_engine
+        url = f"mysql+pymysql://{mirror_user}:{mirror_password}@{mirror_host}/?charset=utf8mb4"
+        eng = create_engine(url, pool_pre_ping=True)
+        with eng.connect() as conn:
+            for db_name in ("passbolt", "dashboard"):
+                try:
+                    rows = conn.execute(text(
+                        "SELECT table_name, table_rows "
+                        "FROM information_schema.tables WHERE table_schema=:s "
+                        "ORDER BY table_name"
+                    ), {"s": db_name}).fetchall()
+                    info["tables"].append({
+                        "db": db_name,
+                        "items": [{"name": r[0], "rows": r[1] or 0} for r in rows],
+                    })
+                except Exception as e:
+                    info["tables"].append({"db": db_name, "error": str(e)})
+    except Exception as e:
+        info["mirror_error"] = str(e)
+
+    return info
+
+
 # ---------- Esquema de la DB ----------
 
 def db_tables(engine):
