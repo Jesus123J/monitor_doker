@@ -9,6 +9,14 @@
 
 ---
 
+## Documentacion
+
+- 🚀 [`INICIO.md`](INICIO.md) — **Empieza aqui**: que necesitas, como arrancar, como apagar, quien puede entrar
+- 📐 [`ARQUITECTURA.md`](ARQUITECTURA.md) — Diseno interno: como conecta todo, donde guarda datos cada componente
+- 🌐 [`DEPLOY.md`](DEPLOY.md) — Despliegue en un server real
+
+---
+
 ## Herramientas y versiones
 
 | Categoria | Herramienta | Version |
