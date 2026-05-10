@@ -1,249 +1,374 @@
-# Como se conecta todo
+# Arquitectura del proyecto
 
-Este documento explica por que el stack esta organizado como esta, que rol cumple
-cada componente, donde guarda sus datos y por que **no podemos** simplemente
-"saltarnos" la base de datos propia de cada aplicacion.
+Como esta organizado el stack, que rol cumple cada pieza y por que hay
+limites a lo que se puede "centralizar".
 
 ---
 
-## Diagrama de conexiones
+## Diagrama general
 
 ```
-                  ┌────────────────────┐
-                  │     Internet       │
-                  └──────────┬─────────┘
-                             │ 80/443
-                  ┌──────────▼─────────┐
-                  │      nginx         │   reverse proxy + TLS
-                  └─┬──────────┬────┬──┘
-                    │          │    │
-        ┌───────────┘          │    └──────────┐
-        │                      │               │
-        ▼                      ▼               ▼
-  ┌──────────┐          ┌────────────┐   ┌──────────┐
-  │ passbolt │          │  dashboard │   │ checkmk  │
-  │   (CE)   │          │   (Flask)  │   │   (raw)  │
-  └────┬─────┘          └─┬───┬───┬──┘   └─────┬────┘
-       │ MySQL            │   │   │ HTTPS API  │
-       │ protocolo        │   │   │            │
-       │                  │   │   └─────────┐  │
-       │   ┌──────────────┘   │             │  │
-       │   │ docker.sock      │             │  │
-       │   │ (RW)             │ MySQL       │  │ RRDtool +
-       │   ▼                  │ protocolo   │  │ SQLite
-       │ ┌─────┐              │             │  │ (interno)
-       │ │Docker│              │             │  ▼
-       │ │engine│              │             │ ┌──────────┐
-       │ └─────┘              │             │ │ /omd/    │
-       │                      │             │ │ sites/   │
-       ▼                      ▼             │ │ monitor/ │
-  ┌──────────────────────────────┐          │ └──────────┘
-  │   db-central (MariaDB 11)    │          │
-  │  ┌──────────┐  ┌───────────┐ │◄─────────┘
-  │  │ passbolt │  │ dashboard │ │  consulta
-  │  └──────────┘  └───────────┘ │
-  └──────────┬───────────────────┘
-             │ dump cada 2h
-             ▼
-  ┌──────────────────────────────┐
-  │   db-mirror (MariaDB 11)     │   espejo de seguridad
-  │  ┌──────────┐  ┌───────────┐ │   (snapshot, no en vivo)
-  │  │ passbolt │  │ dashboard │ │
-  │  └──────────┘  └───────────┘ │
-  └──────────────────────────────┘
+                      ┌────────────────────┐
+                      │     Internet       │
+                      └──────────┬─────────┘
+                                 │ 80 / 443
+                      ┌──────────▼─────────┐
+                      │      nginx         │  reverse proxy + TLS
+                      └─┬──────────┬────┬──┘
+                        │          │    │
+            ┌───────────┘          │    └──────────┐
+            │                      │               │
+            ▼                      ▼               ▼
+      ┌──────────┐          ┌────────────┐   ┌──────────┐
+      │ passbolt │          │  dashboard │   │ checkmk  │
+      └────┬─────┘          └─┬───┬───┬──┘   └─────┬────┘
+           │ MySQL            │   │   │ HTTPS API  │
+           │                  │   │   └──────────┐ │
+           │      docker.sock │   │              │ │ RRDtool +
+           │      ┌───────────┘   │              │ │ SQLite
+           │      ▼               │              │ │ (interno
+           │  ┌──────┐            │              │ │  fijo)
+           │  │Docker│            │              │ ▼
+           │  │engine│            │              │ ┌──────────┐
+           │  └──────┘            │              │ │/omd/sites│
+           │                      ▼              │ │/monitor/ │
+           ▼            ┌─────────────────┐      │ └──────────┘
+   ┌──────────────────────────────────────┐     │
+   │       db-central (MariaDB 11)        │◄────┘
+   │   ┌──────────┐    ┌────────────┐     │   solo lectura
+   │   │ passbolt │    │ dashboard  │     │
+   │   └──────────┘    └────────────┘     │
+   └──────────────┬───────────────────────┘
+                  │ dump cada 2h (db-sync)
+                  ▼
+   ┌──────────────────────────────────────┐
+   │        db-mirror (MariaDB 11)        │   espejo de seguridad
+   │   ┌──────────┐    ┌────────────┐     │
+   │   │ passbolt │    │ dashboard  │     │
+   │   └──────────┘    └────────────┘     │
+   └──────────────────────────────────────┘
 ```
 
 ---
 
-## Cada componente y su base de datos
+## Que hace nginx en este proyecto
 
-| Componente | DB que necesita por diseno | Donde la pusimos |
-|---|---|---|
-| **Passbolt** | MySQL/MariaDB (oficial) | `db-central` -> schema `passbolt` |
-| **Dashboard** | Cualquier SQL | `db-central` -> schema `dashboard` |
-| **Checkmk** | RRDtool + SQLite (interno, no opcional) | Volumen `checkmk_sites` |
-| **Mirror** | MariaDB | `db-mirror` (refrescado cada 2h) |
+Nginx es la **unica puerta de entrada al stack**. Sin nginx, cada
+contenedor tendria que exponer sus propios puertos al sistema operativo
+y manejar su propio TLS — eso seria caotico y peligroso.
 
-### Por que cada app tiene su propia "DB" tecnica
+### Las 4 funciones concretas que cumple
 
-Cada aplicacion fue programada con SU modelo de datos propio:
-
-- **Passbolt** tiene 30+ tablas (users, resources, secrets, permissions,
-  comments, folders, groups, group_users, etc.)
-- **Checkmk** tiene archivos RRD por host + ficheros de configuracion `.mk` +
-  una SQLite para estado de la UI
-- **Dashboard** tiene 4 tablas (users, monitored_targets, status_log, audit_log)
-
-Cuando una app arranca, hace **migraciones**: crea sus tablas, agrega columnas
-nuevas, cambia tipos. Esto es interno de cada producto. Si tu cambias
-manualmente esas tablas, la proxima version romperia todo.
-
----
-
-## Que datos guardamos en la DB central y cuales NO
-
-### Si guardamos en la DB central
-
-- **Todo lo de Passbolt:** cuentas, contrasenas (cifradas), grupos, permisos,
-  comentarios, carpetas, sesiones, llaves PGP publicas, etc.
-- **Todo lo del dashboard:** usuarios del panel, bitacora de acciones
-  operativas (audit_log), catalogo de objetivos monitoreados.
-
-### NO guardamos en la DB central
-
-- **Metricas de Checkmk:** uso de CPU, memoria, disco, red, ping, alarmas.
-  Eso vive en RRDtool dentro del contenedor `checkmk`.
-- **Llaves privadas PGP:** Passbolt es **zero-knowledge**. Las llaves privadas
-  jamas tocan el servidor — viven en el navegador del usuario. Por eso
-  aunque tengas acceso completo a la DB, no puedes leer las contrasenas que
-  guardan los usuarios.
-
----
-
-## Por que Checkmk no puede usar la DB central
-
-Esta es la pregunta tecnica mas importante del proyecto.
-
-**Checkmk fue disenado para usar RRDtool**, no SQL. Razones:
-
-1. **Performance.** Las metricas de monitoreo son *time-series*: miles de
-   puntos por hora por host. RRDtool guarda esto 10 a 100 veces mas eficiente
-   que MySQL, y consulta promedios/maximos historicos en milisegundos.
-
-2. **Round-robin.** RRDtool *automaticamente* va degradando la resolucion de
-   datos viejos (manda 1 punto/min los datos del ultimo dia, 1 punto/hora los
-   de la ultima semana, 1 punto/dia los del ultimo mes). MySQL no hace eso solo.
-
-3. **No hay opcion oficial.** Checkmk no expone un parametro
-   `--use-mysql-instead`. Cambiar esto requeriria modificar el codigo fuente,
-   y cada actualizacion volveria a romper tu cambio.
-
-4. **No vale la pena.** Checkmk ya consume en disco unos cientos de KB por
-   host por mes. La centralizacion no aporta nada operativamente: el
-   storage de Checkmk se respalda con su volumen, no con un dump de SQL.
-
-**Como "centralizamos" entonces?** El dashboard consulta la **API REST de
-Checkmk** y muestra el estado actual junto con todo lo demas. El usuario
-ve un solo panel, aunque por dentro haya dos bases distintas.
-
----
-
-## Por que NO se puede saltar la DB de cada app
-
-Imagina que quisieramos *bypasear* la DB de Passbolt y escribir directo
-en `db-central.passbolt`. Pasaria esto:
-
-1. **Romperias el cifrado.** Las contrasenas en Passbolt se cifran con la
-   llave PGP del usuario *antes* de tocar la DB. Si insertas un texto plano,
-   Passbolt lo veria como dato corrupto y/o lo expondria.
-
-2. **Romperias las relaciones.** Una contrasena en Passbolt vive en la tabla
-   `secrets`, pero ademas necesita filas en `resources`, `permissions`,
-   `secret_accesses`, `entities_history`, etc. Saltearte la app significa
-   reimplementar toda esa logica.
-
-3. **Romperias las migraciones.** La proxima version de Passbolt (4.x ->
-   4.y) trae cambios de schema. Si tu modificaste cosas a mano, el
-   migrador o falla o corrompe los datos.
-
-4. **Nadie lee tus datos despues.** La app no sabe leer "datos que escribio
-   alguien que no es ella". Si pones contrasenas a mano en la DB, en la UI de
-   Passbolt no aparecen.
-
-**La regla:** la DB es propiedad **privada** de cada aplicacion. Centralizar
-significa **compartir el motor** (la instancia de MariaDB), no las tablas.
-
----
-
-## Como SI centralizamos correctamente
-
-**1. Compartir el motor de DB.**
+**1. Punto unico de entrada (puertos 80 y 443)**
 
 ```
-        ┌────────────┐
-        │ db-central │  un solo MariaDB
-        │            │
-        │ ┌────────┐ │  schema "passbolt"  -> dueno: Passbolt
-        │ │passbolt│ │
-        │ └────────┘ │
-        │ ┌────────┐ │  schema "dashboard" -> dueno: Dashboard
-        │ │dashbord│ │
-        │ └────────┘ │
-        └────────────┘
+ANTES (sin nginx)              DESPUES (con nginx)
+─────────────────              ───────────────────
+:8000 → dashboard              :80  → nginx
+:443  → passbolt               :443 → nginx (TLS)
+:5000 → checkmk                       │
+:3306 → mariadb                       ├─→ dashboard (interno)
+                                      ├─→ passbolt (interno)
+4 puertos abiertos             └─→ checkmk (interno)
+en tu firewall                 Solo 2 puertos abiertos
 ```
 
-Cada app tiene su schema, pero el proceso `mariadbd` es uno solo. Beneficios:
+**2. Enruta segun el dominio o ruta**
 
-- Un solo backup
-- Un solo punto de tuning de performance
-- Un solo lugar para monitorear
+Cuando llega una peticion, nginx mira el `Host:` header y la ruta, y
+decide a que contenedor mandarla:
 
-**2. Federacion via API para apps que no soportan SQL externo.**
-
-```
-  Dashboard ────HTTPS API────► Checkmk
-                                   │
-                                   ▼
-                              RRDtool/SQLite
-                              (privado de Checkmk)
-```
-
-El dashboard pregunta "dame el estado de los hosts" via API REST de Checkmk,
-y muestra la respuesta junto con los demas servicios.
-
-**3. Mirror para snapshots periodicos.**
-
-```
-  db-central ──cada 2h: dump+restore──► db-mirror
-```
-
-`db-mirror` es una copia exacta de `db-central` cada 2 horas. Sirve para:
-
-- Recuperacion ante desastres (si `db-central` se corrompe)
-- Reportes pesados que no afectan a Passbolt en vivo
-- Punto de partida para backups en disco
-
----
-
-## Credenciales (todos los passwords del sistema)
-
-Estos son los passwords activos. Estan en `.env` (que NO se sube al repo).
-
-| Para que sirve | Usuario | Password |
-|---|---|---|
-| Dashboard (web custom) | `admin` | `6b8403e319ca019a` |
-| Checkmk (UI y API) | `cmkadmin` | `d78448435920c084916b057e` |
-| Checkmk automation API | `automation` | `892910c464e4b6ebeebdf0f50356f3f3` |
-| MariaDB root (db-central y db-mirror) | `root` | `ff774dde3d011806bd102ec3d6cd3cad` |
-| MariaDB user de Passbolt | `passbolt` | `8137683410f69dda72742b1f30e288c9` |
-| MariaDB user del dashboard | `dashboard` | `10a5531c02fb1ebb22e2bb40c2a46269` |
-| Flask SECRET_KEY (firma cookies) | — | `b6633da1...` (en .env) |
-
-Passbolt tiene su propia logica de login: tu **passphrase** + tu **llave
-privada PGP** descargada en el navegador. NO hay un "password de admin de
-Passbolt" en el servidor — esa es justamente la garantia zero-knowledge.
-
----
-
-## URLs y a que sirven
-
-| URL | Para que |
+| Lo que pide el navegador | Nginx lo manda a |
 |---|---|
-| `http://localhost/` | Dashboard custom (login admin) |
-| `https://localhost:8443/` | Passbolt (gestor de contrasenas) |
-| `http://localhost:5050/monitor/` | Checkmk (monitoreo) |
+| `http://localhost/` | contenedor `dashboard:8000` |
+| `http://localhost/login` | contenedor `dashboard:8000` |
+| `https://passbolt.local/` | contenedor `passbolt:443` |
+| `http://checkmk.local/` | contenedor `checkmk:5000` |
 
-Todas las URLs internas (`db-central:3306`, `passbolt:443`, etc.) **no son
-accesibles desde tu host**, solo entre contenedores. Esa es la idea de la
-red `backend` privada.
+El usuario no se entera que hay 3 servicios distintos por detras.
+
+**3. Centraliza el TLS (HTTPS)**
+
+El certificado SSL vive solo en nginx. Los contenedores internos hablan
+HTTP plano entre ellos (lo cual es seguro porque la red `backend` no
+sale a internet).
+
+```
+Internet ──HTTPS──► nginx ──HTTP plano──► passbolt
+              ▲
+              └── certificado vive aqui,
+                  no en cada servicio
+```
+
+**Beneficio:** cuando renueves el cert (Let's Encrypt cada 90 dias),
+solo tocas nginx. Si cada app tuviera su propio cert serian 3 renovaciones.
+
+**4. Aisla los servicios internos**
+
+```
+             ┌─────────── red "frontend" ────────────┐
+             │                                       │
+        nginx (publico, 80/443)                      │
+             │                                       │
+             ├──┬──────────────┬──────────────┐     │
+             │  ↓              ↓              ↓      │
+        passbolt          dashboard         checkmk  │
+             │              │ │ │              │     │
+             └──┴──────────────────────────────┘     │
+                            ↓ ↓                      │
+             ┌──────── red "backend" (privada) ──────┘
+             │            ↓ ↓
+             │       db-central, db-mirror
+             │
+             └─ NADIE de afuera puede llegar aqui
+```
+
+`db-central` y `db-mirror` solo viven en la red `backend`, que **no esta
+publicada al host**. Si manana alguien encuentra un bug en Passbolt y
+logra escapar del contenedor, todavia no puede tocar la DB directamente
+desde internet.
+
+### Resumen de nginx en una tabla
+
+| Pregunta | Respuesta |
+|---|---|
+| ¿Es opcional? | No: sin el, los servicios necesitarian publicar sus propios puertos |
+| ¿Procesa pedidos? | No: solo los redirige al contenedor correcto |
+| ¿Donde vive el cert SSL? | Solo en nginx, no en passbolt ni en el dashboard |
+| ¿Que pasa si lo apago? | El stack queda accesible solo desde dentro de docker — desde tu navegador no llegas a nada |
 
 ---
 
-## TL;DR
+## Que tienes en la DB centralizada (db-central)
 
-- **Passbolt + Dashboard** → DB central (porque ambos hablan MySQL).
-- **Checkmk** → su propia DB interna, NO se puede mover (decision tecnica del producto).
-- **db-mirror** → snapshot de la DB central cada 2h.
-- **No se puede** saltar la DB propia de cada app porque cada app es la unica
-  que sabe leer/escribir su propio formato. Centralizar = compartir motor,
-  no tablas.
+La DB central es **un solo proceso de MariaDB** que aloja **dos bases
+separadas**, cada una propiedad de su aplicacion duena. No mezclamos
+tablas: cada app tiene su schema y solo el las toca.
+
+### Base 1: `passbolt` (la maneja Passbolt)
+
+Aqui Passbolt guarda todo lo del producto. Tiene 30+ tablas, las mas
+importantes:
+
+| Tabla | Que contiene |
+|---|---|
+| `users` | Tus cuentas (nombre, email, llave PGP publica) |
+| `resources` | Las "entradas" de contraseña (titulo, URL, usuario) |
+| `secrets` | El password en si — **cifrado con la llave PGP del usuario** |
+| `permissions` | Quien puede ver cada resource |
+| `groups` / `groups_users` | Grupos y miembros |
+| `comments` | Comentarios sobre cada resource |
+| `folders` | Carpetas para organizar resources |
+| `entities_history` | Auditoria interna de cambios |
+
+> 🔐 **Importante:** los passwords en `secrets` estan cifrados de tal
+> forma que ni siquiera con acceso completo a la DB puedes leerlos. Esto
+> se explica mas abajo.
+
+### Base 2: `dashboard` (la maneja el dashboard custom)
+
+Aqui guarda lo que necesitamos nosotros:
+
+| Tabla | Que contiene |
+|---|---|
+| `users` | Cuentas para entrar al panel custom (admin / usuario normal) |
+| `monitored_targets` | Catalogo de cosas que queremos monitorear |
+| `status_log` | Historial de chequeos de estado |
+| `audit_log` | Bitacora: que admin presiono start/stop/restart en que contenedor y cuando |
+
+### Por que las metimos juntas en un solo MariaDB
+
+| Beneficio | Explicacion |
+|---|---|
+| **Un solo backup** | Un dump cubre las dos bases |
+| **Un solo lugar para tunear** | Memoria, conexiones, indices — un set de parametros |
+| **Menos contenedores** | Un solo `mariadbd` en vez de dos |
+| **Mismo motor, misma version** | Evita inconsistencias entre Passbolt y dashboard |
+
+---
+
+## Que NO puede compartir Passbolt con la DB centralizada
+
+Esta es la parte conceptual mas importante. Hay cosas que **estan en**
+db-central pero que no son utiles ahi para nadie mas, y hay cosas que
+**no pueden estar** ni siquiera teoricamente.
+
+### Lo que esta cifrado y no se puede leer aunque tengas la DB
+
+Las **contrasenas que guardas en Passbolt** estan en la tabla
+`passbolt.secrets`, pero su valor es algo asi:
+
+```
+-----BEGIN PGP MESSAGE-----
+hQEMAxYJpvuwh4yIAQf/XkN3pT6...muchas lineas de basura cifrada...
+-----END PGP MESSAGE-----
+```
+
+Eso esta cifrado con la **llave publica PGP** de cada usuario. Para
+descifrarlo se necesita la **llave privada**, y Passbolt **nunca** sube
+esa llave privada al servidor — vive en el navegador del usuario, en
+local.
+
+**Consecuencia practica:** aunque tu logueas como root al MariaDB y
+haces `SELECT * FROM passbolt.secrets`, solo ves el texto cifrado. No
+puedes "centralizar" la lectura de contrasenas — fue diseñado asi para
+proteger a los usuarios incluso del administrador del servidor.
+
+```
+Tu admin del SO  ──► tiene root MariaDB ──► ve la DB ──► ve basura cifrada
+                                                         (no las pass)
+
+Tu usuario normal ──► tiene su llave privada local ──► descifra solo lo suyo
+```
+
+### Lo que no se puede meter porque no tiene sentido
+
+- **La sesion abierta del usuario** — Passbolt usa JWT firmados y la
+  sesion vive en cookies del navegador, no en la DB
+- **El estado del navegador** — selecciones, popups, configuracion
+  visual — eso es local del browser
+- **La llave privada PGP** — la genera y guarda solo el navegador
+
+### Por que no se puede saltar la DB de Passbolt
+
+Imagina que quieres "ahorrarte" la DB de Passbolt y escribir
+contrasenas directo a `db-central.passbolt.secrets` desde otra app:
+
+1. **Tendrias que cifrar tu mismo el password** con la llave PGP correcta del usuario destino — Passbolt hace ese trabajo, tu no.
+2. **Tendrias que crear filas relacionadas** en `resources`, `permissions`, `secret_accesses`, `entities_history` — todas con FKs y validaciones.
+3. **La proxima version de Passbolt cambia el schema** — tus inserts a mano dejarian la DB inconsistente y la migracion de la nueva version fallaria o corromperia datos.
+4. **Passbolt no recargaria tus inserts** — su cache interna no sabe que algo aparecio sin que el lo escribiera.
+
+**La regla:** la DB es propiedad **privada** de cada aplicacion. La forma
+correcta de "compartir" es **compartir el motor de MariaDB**, no las tablas.
+
+---
+
+## Que NO puede compartir Checkmk con la DB centralizada
+
+Caso totalmente distinto. Aqui el problema es el formato de los datos.
+
+### Checkmk usa RRDtool, no MySQL
+
+Cuando Checkmk recibe una metrica (CPU = 47.3%, mem = 1.2GB, ping = 8ms),
+**no la escribe en una tabla de SQL**. La escribe en archivos `.rrd`
+dentro del contenedor:
+
+```
+/omd/sites/monitor/var/check_mk/rrd/
+  ├── localhost/
+  │     ├── CPU_utilization.rrd
+  │     ├── Memory.rrd
+  │     ├── Disk_IO.rrd
+  │     └── ...
+  └── ...
+```
+
+RRDtool (Round-Robin Database) es un formato especializado para series
+de tiempo. Es **mucho mas eficiente** que MySQL para guardar millones
+de puntos de metricas, y maneja automaticamente:
+
+- Compresion temporal (datos viejos se promedian: 1 punto/min se vuelve
+  1 punto/hora despues de un dia)
+- Retencion automatica (rota los datos viejos sin que tu hagas nada)
+- Lectura ultrarrapida para graficar
+
+### Por que no podemos cambiarlo a MySQL
+
+| Razon | Explicacion |
+|---|---|
+| **No hay opcion oficial** | Checkmk no tiene un parametro `--use-mysql`. Su core esta atado a RRDtool y SQLite |
+| **Modificar el codigo** | Habria que cambiar el codigo fuente de Checkmk. Cada update lo revertiria |
+| **Performance** | RRDtool es 10–100x mas rapido que MySQL para time-series. Mover a SQL te haria mas lento al graficar |
+| **Soporte** | Si rompes algo no tienes a quien preguntar; ya no usas Checkmk "oficial" |
+
+### Como entonces "centralizamos" Checkmk
+
+No movemos los datos — los **consultamos via API**. El dashboard
+pregunta a Checkmk "¿como esta el host X?" usando su Web API REST, y
+muestra la respuesta en la misma pantalla donde se ven los datos de
+db-central.
+
+```
+Dashboard ──HTTPS GET──► Checkmk API
+                              │
+                              ▼
+                         RRDtool/SQLite
+                         (privado de Checkmk,
+                          no entra a db-central)
+```
+
+Esto es **federacion**: cada app sigue dueña de sus datos, pero un
+agregador (el dashboard) los muestra unificados.
+
+---
+
+## La DB espejo (db-mirror)
+
+`db-mirror` es una **copia de db-central refrescada cada 2 horas** que
+vive en otro contenedor y otro volumen. Esto te lo hace el servicio
+`db-sync`.
+
+### Como funciona el sync
+
+```
+cada 2h                    db-sync ejecuta:
+
+   ┌────────┐          1. mariadb-dump db-central
+   │db-     │   dump      --databases passbolt dashboard
+   │central │ ─────────►  --add-drop-database
+   └────────┘
+                       2. pipe el dump a:
+                          mariadb db-mirror
+
+   ┌────────┐          3. db-mirror queda con
+   │db-     │ ◄─restore   las dos bases reescritas
+   │mirror  │             desde cero
+   └────────┘
+
+   El primer sync corre al arrancar el stack (no espera 2h).
+   Si el sync falla, el mirror queda con la version de hace 2h previa.
+```
+
+### Para que sirve
+
+| Caso de uso | Como ayuda el mirror |
+|---|---|
+| **db-central se corrompe / borra accidental** | Tienes una copia menos de 2h vieja en linea, sin restaurar de un dump en disco |
+| **Reportes pesados** | Lees del mirror — no afectas el rendimiento de Passbolt en vivo |
+| **Backups en disco** | El dump nocturno puede tomarse del mirror sin lockear nada |
+| **Debugging** | Puedes hacer queries destructivas contra el mirror sin miedo |
+
+### Limitaciones
+
+- **No es replicacion en vivo.** Hay un retraso de hasta 2h entre lo que
+  cambias en Passbolt y lo que ves en el mirror.
+- **Es solo lectura recomendada.** Si escribes ahi, el proximo sync
+  borra tus cambios.
+- **Solo replica las dos bases SQL** (`passbolt`, `dashboard`). NO
+  incluye los datos de Checkmk (que viven en RRDtool, no en SQL).
+
+### Como verlo desde el dashboard
+
+Vas a `http://localhost/mirror` y ves:
+- Cuando fue el ultimo sync (timestamp + cuanto tardo)
+- Si esta `OK` o `FAIL`
+- Las tablas espejadas con conteo de filas
+
+---
+
+## Tabla resumen
+
+| Componente | Que guarda y donde | Compartido con db-central |
+|---|---|---|
+| Passbolt | passwords cifrados, usuarios, permisos en `db-central.passbolt` | ✅ Si (motor compartido) |
+| Dashboard custom | usuarios, audit log en `db-central.dashboard` | ✅ Si |
+| Checkmk | metricas RRDtool en su volumen propio | ❌ No (formato distinto) |
+| db-mirror | copia de las dos bases SQL cada 2h | (es la copia) |
+| nginx | nada — solo enruta peticiones | (no usa DB) |
+
+---
+
+## Credenciales
+
+Listadas en [`INICIO.md`](INICIO.md), seccion 5 (Acceder a las webs).
