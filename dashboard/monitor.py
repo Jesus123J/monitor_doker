@@ -140,6 +140,49 @@ def container_action(name: str, action: str):
         return False, str(e)
 
 
+def db_activity_diff(db_host: str, mirror_host: str, db_password: str):
+    """Compara conteos de filas entre db-central y db-mirror.
+
+    Devuelve una lista por tabla relevante con central, mirror y diff.
+    """
+    from sqlalchemy import create_engine
+
+    # Tablas que mas representan "actividad" del usuario
+    targets = [
+        ("passbolt",  "resources",  "Contrasenas guardadas en Passbolt"),
+        ("passbolt",  "users",      "Usuarios de Passbolt"),
+        ("passbolt",  "groups",     "Grupos de Passbolt"),
+        ("dashboard", "users",      "Usuarios del panel"),
+        ("dashboard", "audit_log",  "Acciones en bitacora"),
+        ("dashboard", "container_lifecycle", "Eventos de ciclo de vida"),
+    ]
+
+    def _count(host, db, table):
+        try:
+            url = (f"mysql+pymysql://root:{db_password}@{host}/{db}"
+                   "?charset=utf8mb4&connect_timeout=3")
+            eng = create_engine(url, pool_pre_ping=True)
+            with eng.connect() as conn:
+                return int(conn.execute(text(
+                    f"SELECT COUNT(*) FROM `{table}`"
+                )).scalar() or 0)
+        except Exception:
+            return None
+
+    out = []
+    for db_name, table, label in targets:
+        c = _count(db_host, db_name, table)
+        m = _count(mirror_host, db_name, table)
+        diff = None
+        if c is not None and m is not None:
+            diff = c - m
+        out.append({
+            "db": db_name, "table": table, "label": label,
+            "central": c, "mirror": m, "diff": diff,
+        })
+    return out
+
+
 def trigger_mirror_sync():
     """Ejecuta sync-now.sh dentro del contenedor db-sync."""
     try:
