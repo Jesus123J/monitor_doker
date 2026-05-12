@@ -57,7 +57,7 @@ services:
       TARGET_USER: root
       TARGET_PASSWORD: ${DB_ROOT_PASSWORD}
       DATABASES: passbolt dashboard
-      SYNC_INTERVAL_HOURS: 2
+      SYNC_INTERVAL_HOURS: ${SYNC_INTERVAL_HOURS:-1}
     volumes:
       - db_sync_status:/var/lib/db-sync
     networks:

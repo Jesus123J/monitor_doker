@@ -16,6 +16,7 @@ from monitor import (
     docker_containers, passbolt_status, checkmk_status, db_status,
     container_logs, container_stats, container_inspect, container_action,
     find_problems, db_tables, mirror_status, db_overview,
+    trigger_mirror_sync,
 )
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -213,6 +214,17 @@ def db_central():
         db_password=os.environ.get("DB_ROOT_PASSWORD", ""),
     )
     return render_template("db_central.html", overview=overview)
+
+
+@app.route("/mirror/sync", methods=["POST"])
+@admin_required
+def mirror_sync_now():
+    ok, detail = trigger_mirror_sync()
+    _audit(action="mirror_sync_manual", target="db-mirror",
+           success=ok, detail=detail)
+    flash(f"Sync manual: {'OK' if ok else 'FAIL'} — {detail[:200]}",
+          "success" if ok else "danger")
+    return redirect(url_for("mirror"))
 
 
 @app.route("/mirror")
