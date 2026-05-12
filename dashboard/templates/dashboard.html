@@ -39,6 +39,71 @@
   {% endfor %}
 </div>
 
+<h3>Actividad de la DB (central ↔ espejo)</h3>
+<p class="text-muted small mb-2">
+  Comparativa de filas reales en vivo. Si guardas algo en Passbolt y el espejo
+  no se ha sincronizado, veras una diferencia (badge naranja).
+  <a href="https://localhost:8443/" target="_blank">Guardar una contrasena en Passbolt</a>
+  para probar.
+</p>
+
+<div class="card shadow-sm mb-4">
+  <table class="table table-hover mb-0 align-middle">
+    <thead class="table-light">
+      <tr>
+        <th>Tabla</th>
+        <th class="text-end">db-central</th>
+        <th class="text-end">db-mirror</th>
+        <th class="text-end">Diferencia</th>
+      </tr>
+    </thead>
+    <tbody id="activity-tbody">
+      {% for a in activity %}
+      <tr>
+        <td>
+          <code>{{ a.db }}.{{ a.table }}</code>
+          <small class="text-muted d-block">{{ a.label }}</small>
+        </td>
+        <td class="text-end">
+          {% if a.central is none %}
+            <span class="text-muted">—</span>
+          {% else %}
+            <strong>{{ a.central }}</strong>
+          {% endif %}
+        </td>
+        <td class="text-end">
+          {% if a.mirror is none %}
+            <span class="text-muted">—</span>
+          {% else %}
+            {{ a.mirror }}
+          {% endif %}
+        </td>
+        <td class="text-end">
+          {% if a.diff is none %}
+            <span class="text-muted">—</span>
+          {% elif a.diff == 0 %}
+            <span class="badge text-bg-success">sincronizado</span>
+          {% elif a.diff > 0 %}
+            <span class="badge text-bg-warning">+{{ a.diff }} pendiente</span>
+          {% else %}
+            <span class="badge text-bg-info">{{ a.diff }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if current_user.is_admin %}
+    <div class="card-footer text-end">
+      <form method="post" action="{{ url_for('mirror_sync_now') }}" class="d-inline">
+        <button class="btn btn-warning btn-sm">
+          <i class="bi bi-arrow-repeat"></i> Sincronizar ahora
+        </button>
+      </form>
+    </div>
+  {% endif %}
+</div>
+
 <h3>Contenedores</h3>
 {% if docker_err %}
   <div class="alert alert-warning">
@@ -126,6 +191,25 @@
         badge.textContent = s.status.toUpperCase();
         card.querySelector(".svc-detail").textContent = s.detail;
       });
+
+      // Actividad de la DB
+      const actBody = document.getElementById("activity-tbody");
+      if (actBody && data.activity) {
+        actBody.innerHTML = data.activity.map(a => {
+          const cell = (v) => v === null ? '<span class="text-muted">—</span>' : v;
+          let diffCell;
+          if (a.diff === null) diffCell = '<span class="text-muted">—</span>';
+          else if (a.diff === 0) diffCell = '<span class="badge text-bg-success">sincronizado</span>';
+          else if (a.diff > 0) diffCell = `<span class="badge text-bg-warning">+${a.diff} pendiente</span>`;
+          else diffCell = `<span class="badge text-bg-info">${a.diff}</span>`;
+          return `<tr>
+            <td><code>${a.db}.${a.table}</code><small class="text-muted d-block">${a.label}</small></td>
+            <td class="text-end"><strong>${cell(a.central)}</strong></td>
+            <td class="text-end">${cell(a.mirror)}</td>
+            <td class="text-end">${diffCell}</td>
+          </tr>`;
+        }).join("");
+      }
 
       // Filas de contenedores
       const tbody = document.getElementById("containers-tbody");

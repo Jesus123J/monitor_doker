@@ -18,7 +18,7 @@ from monitor import (
     docker_containers, passbolt_status, checkmk_status, db_status,
     container_logs, container_stats, container_inspect, container_action,
     find_problems, db_tables, mirror_status, db_overview,
-    trigger_mirror_sync,
+    trigger_mirror_sync, db_activity_diff,
 )
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -109,12 +109,19 @@ def index():
 
     problems, _ = find_problems()
 
+    activity = db_activity_diff(
+        db_host=os.environ.get("DB_HOST", "db-central"),
+        mirror_host=os.environ.get("MIRROR_HOST", "db-mirror"),
+        db_password=os.environ.get("DB_ROOT_PASSWORD", ""),
+    )
+
     return render_template(
         "dashboard.html",
         services=services,
         containers=containers,
         docker_err=docker_err,
         problem_count=len(problems),
+        activity=activity,
     )
 
 
@@ -356,6 +363,11 @@ def api_status():
     )
     dbs = db_status(db.engine)
     problems, _ = find_problems()
+    activity = db_activity_diff(
+        db_host=os.environ.get("DB_HOST", "db-central"),
+        mirror_host=os.environ.get("MIRROR_HOST", "db-mirror"),
+        db_password=os.environ.get("DB_ROOT_PASSWORD", ""),
+    )
     return {
         "services": [
             {"name": "Passbolt", "status": pb[0], "detail": pb[1]},
@@ -365,6 +377,7 @@ def api_status():
         "containers": containers,
         "docker_err": docker_err,
         "problem_count": len(problems),
+        "activity": activity,
     }
 
 
