@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Ciclo de vida{% endblock %}
+
+{% macro fmt_secs(s) %}
+  {% if s is none or s == 0 %}-
+  {% elif s < 60 %}{{ s }}s
+  {% elif s < 3600 %}{{ (s / 60)|round(1) }}m
+  {% elif s < 86400 %}{{ (s / 3600)|round(1) }}h
+  {% else %}{{ (s / 86400)|round(1) }}d
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+
+<h3><i class="bi bi-clock-history"></i> Ciclo de vida de los contenedores</h3>
+<p class="text-muted small">
+  Tiempos de actividad y caidas, calculados en base a las transiciones
+  detectadas cada 30s. Datos de los ultimos 7 dias.
+</p>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><strong>Resumen por contenedor (ultimos 7 dias)</strong></div>
+  <table class="table table-hover mb-0">
+    <thead class="table-light">
+      <tr>
+        <th>Contenedor</th>
+        <th class="text-end">Uptime</th>
+        <th class="text-end">Downtime (exited)</th>
+        <th class="text-end">Otros estados</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for name, s in summary.items() %}
+      <tr>
+        <td><code>{{ name }}</code></td>
+        <td class="text-end text-success">{{ fmt_secs(s.running) }}</td>
+        <td class="text-end {% if s.exited %}text-danger{% else %}text-muted{% endif %}">
+          {{ fmt_secs(s.exited) }}
+        </td>
+        <td class="text-end text-muted">{{ fmt_secs(s.other) }}</td>
+      </tr>
+      {% else %}
+        <tr><td colspan="4" class="text-center text-muted">
+          Aun no hay datos. El tracker registra transiciones cada 30s — vuelve en unos minutos.
+        </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header"><strong>Eventos recientes</strong> (ultimos 50)</div>
+  <table class="table table-hover mb-0">
+    <thead class="table-light">
+      <tr>
+        <th>Fecha (UTC)</th>
+        <th>Contenedor</th>
+        <th>Transicion</th>
+        <th>Health</th>
+        <th class="text-end">Duro</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in recent %}
+      <tr>
+        <td class="small">{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td><code>{{ e.container_name }}</code></td>
+        <td class="small">
+          {% if e.prev_state %}
+            <span class="badge text-bg-secondary">{{ e.prev_state }}</span>
+            →
+          {% endif %}
+          {% if e.new_state == 'running' %}
+            <span class="badge text-bg-success">{{ e.new_state }}</span>
+          {% elif e.new_state == 'exited' %}
+            <span class="badge text-bg-danger">{{ e.new_state }}</span>
+          {% else %}
+            <span class="badge text-bg-warning">{{ e.new_state }}</span>
+          {% endif %}
+        </td>
+        <td class="text-muted small">{{ e.health }}</td>
+        <td class="text-end small">{{ fmt_secs(e.duration_seconds) }}</td>
+      </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-center text-muted">Sin eventos todavia</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
