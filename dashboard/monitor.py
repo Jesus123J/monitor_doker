@@ -313,7 +313,7 @@ def mirror_status(status_file: str, mirror_host: str, mirror_user: str, mirror_p
                     ), {"s": db_name}).fetchall()
                     info["tables"].append({
                         "db": db_name,
-                        "items": [{"name": r[0], "rows": r[1] or 0} for r in rows],
+                        "entries": [{"name": r[0], "rows": r[1] or 0} for r in rows],
                     })
                 except Exception as e:
                     info["tables"].append({"db": db_name, "error": str(e)})
