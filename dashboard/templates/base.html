@@ -38,6 +38,7 @@
         <a class="nav-link" href="{{ url_for('mirror') }}">Mirror DB</a>
         {% if current_user.is_admin %}
           <a class="nav-link" href="{{ url_for('users_list') }}">Usuarios</a>
+          <a class="nav-link" href="{{ url_for('db_central') }}">DB central</a>
           <a class="nav-link" href="{{ url_for('schema') }}">Esquema DB</a>
           <a class="nav-link" href="{{ url_for('audit') }}">Auditoria</a>
         {% endif %}

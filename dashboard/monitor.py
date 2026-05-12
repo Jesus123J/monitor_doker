@@ -285,3 +285,32 @@ def db_tables(engine):
         return result, None
     except Exception as e:
         return [], str(e)
+
+
+def db_overview(db_host: str, db_user: str, db_password: str):
+    """Lista las dos bases (passbolt y dashboard) con tablas y conteo de filas.
+
+    Prueba visualmente que Passbolt SI esta usando la DB central.
+    """
+    from sqlalchemy import create_engine
+    overview = []
+    for db_name in ("passbolt", "dashboard"):
+        entry = {"db": db_name, "tables": [], "total_rows": 0, "error": None}
+        try:
+            url = (f"mysql+pymysql://{db_user}:{db_password}@{db_host}/{db_name}"
+                   "?charset=utf8mb4")
+            eng = create_engine(url, pool_pre_ping=True)
+            with eng.connect() as conn:
+                rows = conn.execute(text(
+                    "SELECT table_name, table_rows "
+                    "FROM information_schema.tables WHERE table_schema=:s "
+                    "ORDER BY table_name"
+                ), {"s": db_name}).fetchall()
+                for t_name, t_rows in rows:
+                    n = t_rows or 0
+                    entry["tables"].append({"name": t_name, "rows": n})
+                    entry["total_rows"] += n
+        except Exception as e:
+            entry["error"] = str(e)
+        overview.append(entry)
+    return overview
