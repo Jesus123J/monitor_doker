@@ -2,10 +2,23 @@
 {% block title %}Mirror DB{% endblock %}
 {% block content %}
 
-<h3><i class="bi bi-hdd-stack-fill"></i> Mirror de la DB central</h3>
-<p class="text-muted small">
-  Snapshot completo de <code>db-central</code> hacia <code>db-mirror</code> cada 2 horas.
-</p>
+<div class="d-flex justify-content-between align-items-start mb-2">
+  <div>
+    <h3 class="mb-0"><i class="bi bi-hdd-stack-fill"></i> Mirror de la DB central</h3>
+    <p class="text-muted small mb-0">
+      Snapshot completo de <code>db-central</code> hacia <code>db-mirror</code>.
+      Intervalo configurable en <code>.env</code> (default: 1 hora).
+    </p>
+  </div>
+  {% if current_user.is_admin %}
+    <form method="post" action="{{ url_for('mirror_sync_now') }}"
+          onsubmit="return confirm('Lanzar un sync manual ahora?');">
+      <button class="btn btn-warning btn-sm">
+        <i class="bi bi-arrow-repeat"></i> Sincronizar ahora
+      </button>
+    </form>
+  {% endif %}
+</div>
 
 <div class="row g-3 mb-3">
   <div class="col-md-6">

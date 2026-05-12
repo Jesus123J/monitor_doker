@@ -140,6 +140,20 @@ def container_action(name: str, action: str):
         return False, str(e)
 
 
+def trigger_mirror_sync():
+    """Ejecuta sync-now.sh dentro del contenedor db-sync."""
+    try:
+        c = _client().containers.get("db-sync")
+        if c.status != "running":
+            return False, f"db-sync no esta corriendo (estado={c.status})"
+        result = c.exec_run("/usr/local/bin/sync-now.sh", demux=False)
+        ok = result.exit_code == 0
+        output = (result.output or b"").decode("utf-8", errors="replace")[-500:]
+        return ok, output or ("OK" if ok else f"exit={result.exit_code}")
+    except Exception as e:
+        return False, str(e)
+
+
 # ---------- Diagnostico ----------
 
 def find_problems():
