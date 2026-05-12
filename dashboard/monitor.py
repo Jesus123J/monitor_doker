@@ -301,6 +301,56 @@ def passbolt_status(url: str):
         return "down", str(e)
 
 
+def checkmk_fetch_hosts(base_url: str, user: str, secret: str):
+    """Devuelve lista de hosts con su estado consolidado desde la API.
+
+    Usa /domain-types/host/collections/all con columns explicitas para
+    traer el state, plugin_output y last_check.
+    """
+    if not (user and secret):
+        return [], "Falta CMK_AUTOMATION_SECRET"
+
+    api = f"{base_url.rstrip('/')}/check_mk/api/1.0"
+    headers = {"Authorization": f"Bearer {user} {secret}"}
+
+    try:
+        r = requests.get(
+            f"{api}/domain-types/host/collections/all",
+            headers=headers,
+            params={
+                "columns": ["name", "state", "plugin_output",
+                            "last_check", "acknowledged"],
+            },
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return [], f"API HTTP {r.status_code}: {r.text[:200]}"
+
+        STATE_TEXT = {0: "OK", 1: "WARN", 2: "CRIT", 3: "UNKNOWN"}
+        from datetime import datetime as _dt
+
+        out = []
+        for h in r.json().get("value", []):
+            ext = h.get("extensions", {})
+            last_check = ext.get("last_check")
+            try:
+                last_check_dt = _dt.utcfromtimestamp(int(last_check)) if last_check else None
+            except Exception:
+                last_check_dt = None
+            state = ext.get("state")
+            out.append({
+                "name": ext.get("name") or h.get("id"),
+                "state": int(state) if state is not None else None,
+                "state_text": STATE_TEXT.get(int(state)) if state is not None else None,
+                "output": (ext.get("plugin_output") or "")[:1000],
+                "last_check": last_check_dt,
+                "acknowledged": bool(ext.get("acknowledged")),
+            })
+        return out, None
+    except Exception as e:
+        return [], str(e)
+
+
 def checkmk_status(base_url: str, user: str, secret: str):
     if not (user and secret):
         return "unknown", "Falta CMK_AUTOMATION_SECRET"

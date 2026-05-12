@@ -8,48 +8,66 @@ limites a lo que se puede "centralizar".
 ## Diagrama general
 
 ```
-                      ┌────────────────────┐
-                      │     Internet       │
-                      └──────────┬─────────┘
-                                 │ 80 / 443
-                      ┌──────────▼─────────┐
-                      │      nginx         │  reverse proxy + TLS
-                      └─┬──────────┬────┬──┘
-                        │          │    │
-            ┌───────────┘          │    └──────────┐
-            │                      │               │
-            ▼                      ▼               ▼
-      ┌──────────┐          ┌────────────┐   ┌──────────────┐
-      │ passbolt │          │  dashboard │   │   checkmk    │
-      │          │          │   (Flask)  │   │ (NO usa SQL) │
-      └────┬─────┘          └─┬─────┬────┘   └──────┬───────┘
-           │                  │     │               │
-           │ MySQL            │     │ HTTPS API     │ guarda en
-           │ (escribe)        │     │ (LEE estado)  │ archivos locales
-           │                  │     │               │
-           │                  │     └──────────────►│
-           │                  │ MySQL               │
-           │                  │ (escribe)           ▼
-           │                  │              ┌───────────────────┐
-           │                  │              │ /omd/sites/monitor│
-           │                  │              │   RRDtool (.rrd)  │
-           │                  │              │   SQLite          │
-           ▼                  ▼              │   ficheros .mk    │
-   ┌────────────────────────────────────┐    └───────────────────┘
-   │      db-central (MariaDB 11)       │
-   │  ┌──────────┐    ┌────────────┐    │   ❗ Checkmk NO escribe
-   │  │ passbolt │    │ dashboard  │    │      ni lee de aqui.
-   │  └──────────┘    └────────────┘    │      Es totalmente
-   └──────────────┬─────────────────────┘      independiente.
-                  │
-                  │ db-sync hace dump cada 1h
-                  ▼
-   ┌────────────────────────────────────┐
-   │      db-mirror (MariaDB 11)        │
-   │  ┌──────────┐    ┌────────────┐    │   Copia de seguridad
-   │  │ passbolt │    │ dashboard  │    │   solo de passbolt
-   │  └──────────┘    └────────────┘    │   y dashboard.
-   └────────────────────────────────────┘
+                       ┌────────────────────┐
+                       │     Internet       │
+                       └──────────┬─────────┘
+                                  │ 80 / 443
+                       ┌──────────▼─────────┐
+                       │      nginx         │
+                       └─┬──────────┬────┬──┘
+                         │          │    │
+             ┌───────────┘          │    └──────────┐
+             │                      │               │
+             ▼                      ▼               ▼
+       ┌──────────┐          ┌────────────┐   ┌──────────────┐
+       │ passbolt │          │  dashboard │   │   checkmk    │
+       │          │          │   (Flask)  │   │ (NO usa SQL) │
+       └────┬─────┘          └────────┬───┘   └──────┬───────┘
+            │                         │              │
+            │ MySQL                   │              │ archivos
+            │ (escribe)               │              │ locales
+            │                         │              ▼
+            │  ┌──────────────────────┼─────►┌───────────────────┐
+            │  │ docker.sock          │      │ /omd/sites/monitor│
+            │  │ (lee + acciones)     │      │  RRDtool (.rrd)   │
+            │  ▼                      │      │  SQLite           │
+            │ ┌──────┐                │      │  ficheros .mk     │
+            │ │Docker│                │      └─────────▲─────────┘
+            │ │engine│                │                │
+            │ └──────┘                │ HTTPS API      │
+            │                         │ ◄──────────────┘
+            │                         │ (cada carga: estado en vivo)
+            │       worker periodico  │
+            │       cada 5 min        │ HTTPS API
+            │       ┌─────────────────┤ (lee + guarda)
+            │       ▼                 │
+            │ ┌──────────┐            │
+            │ │snapshot  │            │
+            │ │tter      │            │
+            │ └────┬─────┘            │
+            │      │ INSERT           │
+            │      │ checkmk_snapshots│
+            ▼      ▼                  ▼
+    ┌─────────────────────────────────────────┐
+    │       db-central (MariaDB 11)           │
+    │  ┌──────────┐    ┌─────────────────┐    │
+    │  │ passbolt │    │ dashboard       │    │
+    │  │          │    │  ├ users        │    │
+    │  │          │    │  ├ audit_log    │    │
+    │  │          │    │  ├ lifecycle    │    │
+    │  │          │    │  └ checkmk_snap │ ◄── snapshots
+    │  └──────────┘    └─────────────────┘    │     persisten
+    └──────────────────┬──────────────────────┘     aqui!
+                       │
+                       │ db-sync hace dump cada 1h
+                       ▼
+    ┌─────────────────────────────────────────┐
+    │        db-mirror (MariaDB 11)           │   copia incluye
+    │  ┌──────────┐    ┌─────────────────┐    │   los snapshots
+    │  │ passbolt │    │ dashboard       │    │   de Checkmk
+    │  │          │    │ (mismas tablas) │    │
+    │  └──────────┘    └─────────────────┘    │
+    └─────────────────────────────────────────┘
 ```
 
 ### Por que Checkmk esta separado en el diagrama
@@ -63,23 +81,66 @@ limites a lo que se puede "centralizar".
 
 ### Como entonces "unimos" Checkmk al stack
 
-El dashboard custom funciona como **agregador**: pide a Checkmk via API
-"¿como esta el host X?" y lo muestra en la misma pantalla donde aparece
-Passbolt y los contenedores. El usuario ve **un solo panel unificado**
-aunque por detras los datos vivan en dos lugares distintos.
+Hay **dos formas** que el dashboard usa para integrar Checkmk:
+
+**1. Lectura en vivo (read-through)**
+
+Cuando cargas una pagina como `/`, el dashboard llama la API de Checkmk
+**en ese momento** y muestra el resultado. Util para ver "estado actual".
+No persiste nada.
 
 ```
-   dashboard ─────HTTPS GET───────► Checkmk API
-                                         │
-                                         ▼
-                                    RRDtool / SQLite
-                                    (storage interno)
+   tu navegador ──► dashboard ──HTTPS──► Checkmk API
+                                              │
+                                              ▼
+                                         RRDtool/SQLite
 ```
 
-Esto se llama **federacion**: cada app sigue duena de sus datos, y un
-componente arriba (el dashboard) los presenta unificados al usuario.
-Es lo opuesto a **centralizacion** (todos escriben en un solo lugar) y
-es el patron correcto cuando el producto no soporta DB externa.
+**2. Snapshots persistidos (worker periodico) ⭐ NUEVO**
+
+Cada 5 minutos un worker en el dashboard llama a la API de Checkmk y
+**guarda el estado de cada host** en la tabla `dashboard.checkmk_snapshots`
+de la DB central. Como esta en db-central, **se replica al db-mirror** en
+el proximo sync.
+
+```
+   checkmk_snapshotter ──cada 5min──► Checkmk API
+            │                              │
+            │ INSERT por host               ▼
+            ▼                          RRDtool/SQLite
+   db-central.dashboard.checkmk_snapshots
+            │
+            │ db-sync (cada 1h)
+            ▼
+   db-mirror.dashboard.checkmk_snapshots
+```
+
+**Beneficios concretos:**
+
+| Beneficio | Ejemplo de uso |
+|---|---|
+| Historial persistente | "Que dia y hora estuvo en CRIT el host X?" |
+| Sobrevive a caidas de Checkmk | Si Checkmk muere, todavia tenes el ultimo snapshot en db-central |
+| Queryable en SQL | `SELECT host_name, COUNT(*) WHERE state=2 GROUP BY host_name` |
+| Auditoria/SLA | Probar que tal hora tal host estaba en alerta |
+| Se replica al mirror | Doble copia de seguridad sin esfuerzo |
+
+**Lo que aun NO esta en db-central** (sigue siendo solo de Checkmk):
+
+- Las metricas crudas (CPU=47.3 cada minuto) — son millones de puntos y
+  RRDtool es el formato correcto. No vale la pena moverlos.
+- La configuracion del sitio Checkmk (ficheros .mk).
+- El log de eventos del nucleo Checkmk (cmc.log).
+
+### Resumen: centralizacion vs federacion vs snapshots
+
+Nuestro stack usa **los tres patrones** segun lo que aplica:
+
+| Patron | Para que | Ejemplo |
+|---|---|---|
+| **Centralizacion** | Apps que soportan SQL externo | Passbolt + dashboard escriben en db-central |
+| **Federacion (read-through)** | Para mostrar estado actual sin persistir | Tarjeta "Checkmk" en `/` |
+| **Snapshots persistidos** | Para historicos y auditoria de productos que no comparten DB | `checkmk_snapshots` cada 5min |
 
 ---
 

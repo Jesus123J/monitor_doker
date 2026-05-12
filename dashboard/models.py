@@ -71,6 +71,24 @@ class AuditLog(db.Model):
     user = db.relationship("User", backref="audit_logs")
 
 
+class CheckmkSnapshot(db.Model):
+    """Snapshot periodico del estado de un host segun la API de Checkmk."""
+    __tablename__ = "checkmk_snapshots"
+
+    id = db.Column(db.BigInteger, primary_key=True)
+    snapshot_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    host_name = db.Column(db.String(128), nullable=False, index=True)
+    state = db.Column(db.Integer)  # 0=OK, 1=WARN, 2=CRIT, 3=UNKNOWN
+    state_text = db.Column(db.String(16))
+    output = db.Column(db.Text)
+    last_check = db.Column(db.DateTime, nullable=True)
+    acknowledged = db.Column(db.Boolean, default=False)
+
+    __table_args__ = (
+        db.Index("idx_host_time", "host_name", "snapshot_at"),
+    )
+
+
 class ContainerLifecycle(db.Model):
     """Eventos de ciclo de vida de contenedores: cuando arranca, se apaga, etc."""
     __tablename__ = "container_lifecycle"

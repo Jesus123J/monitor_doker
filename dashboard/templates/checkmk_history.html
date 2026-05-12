@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Historial Checkmk{% endblock %}
+
+{% set badge = {
+  'OK':      'success',
+  'WARN':    'warning',
+  'CRIT':    'danger',
+  'UNKNOWN': 'secondary'
+} %}
+
+{% block content %}
+
+<h3><i class="bi bi-clipboard-data"></i> Historial Checkmk persistido</h3>
+<p class="text-muted small">
+  Snapshots tomados desde la API de Checkmk cada 5 minutos y guardados
+  en <code>dashboard.checkmk_snapshots</code>. Se replica al
+  <code>db-mirror</code> en cada sync. Datos de los ultimos 7 dias.
+</p>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><strong>Resumen por host (ultimos 7 dias)</strong></div>
+  <table class="table table-hover mb-0 align-middle">
+    <thead class="table-light">
+      <tr>
+        <th>Host</th>
+        <th class="text-end">OK</th>
+        <th class="text-end">WARN</th>
+        <th class="text-end">CRIT</th>
+        <th class="text-end">UNKNOWN</th>
+        <th class="text-end">Total snapshots</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for host, s in summary.items() %}
+      <tr>
+        <td><code>{{ host }}</code></td>
+        <td class="text-end text-success">{{ s.OK }}</td>
+        <td class="text-end {% if s.WARN %}text-warning{% else %}text-muted{% endif %}">{{ s.WARN }}</td>
+        <td class="text-end {% if s.CRIT %}text-danger{% else %}text-muted{% endif %}">{{ s.CRIT }}</td>
+        <td class="text-end text-muted">{{ s.UNKNOWN }}</td>
+        <td class="text-end">{{ s.total }}</td>
+      </tr>
+      {% else %}
+        <tr><td colspan="6" class="text-center text-muted">
+          Aun no hay snapshots. El worker pollea cada 5 minutos —
+          si acabas de arrancar el stack, espera unos minutos.
+          Tambien necesita que Checkmk tenga hosts agregados.
+        </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header"><strong>Eventos recientes</strong> (ultimos 100)</div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Snapshot (UTC)</th>
+          <th>Host</th>
+          <th>Estado</th>
+          <th>Salida</th>
+          <th>Last check</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in recent %}
+        <tr>
+          <td class="small">{{ s.snapshot_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+          <td><code>{{ s.host_name }}</code></td>
+          <td>
+            <span class="badge text-bg-{{ badge.get(s.state_text, 'secondary') }}">
+              {{ s.state_text or '?' }}
+            </span>
+            {% if s.acknowledged %}<span class="badge text-bg-info">ack</span>{% endif %}
+          </td>
+          <td class="small text-muted">{{ (s.output or '')[:120] }}</td>
+          <td class="small text-muted">
+            {{ s.last_check.strftime('%H:%M:%S') if s.last_check else '-' }}
+          </td>
+        </tr>
+        {% else %}
+          <tr><td colspan="5" class="text-center text-muted">Sin snapshots todavia</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
