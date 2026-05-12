@@ -69,3 +69,17 @@ class AuditLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
     user = db.relationship("User", backref="audit_logs")
+
+
+class ContainerLifecycle(db.Model):
+    """Eventos de ciclo de vida de contenedores: cuando arranca, se apaga, etc."""
+    __tablename__ = "container_lifecycle"
+
+    id = db.Column(db.BigInteger, primary_key=True)
+    container_name = db.Column(db.String(128), nullable=False, index=True)
+    prev_state = db.Column(db.String(32))
+    new_state = db.Column(db.String(32), nullable=False)
+    health = db.Column(db.String(32))
+    duration_seconds = db.Column(db.Integer)  # cuanto duro el estado previo
+    detail = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)

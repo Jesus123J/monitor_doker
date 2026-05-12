@@ -1,6 +1,7 @@
 import os
 import time
 import urllib3
+from datetime import datetime
 from functools import wraps
 from flask import (
     Flask, render_template, request, redirect, url_for, flash, abort
@@ -11,7 +12,8 @@ from flask_login import (
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, IntegrityError
 
-from models import db, User, MonitoredTarget, StatusLog, AuditLog
+from models import db, User, MonitoredTarget, StatusLog, AuditLog, ContainerLifecycle
+import lifecycle
 from monitor import (
     docker_containers, passbolt_status, checkmk_status, db_status,
     container_logs, container_stats, container_inspect, container_action,
@@ -239,6 +241,43 @@ def mirror():
     return render_template("mirror.html", info=info)
 
 
+@app.route("/lifecycle")
+@login_required
+def lifecycle_view():
+    from sqlalchemy import func
+    from datetime import timedelta
+
+    # Ultimos 50 eventos
+    recent = (ContainerLifecycle.query
+              .order_by(ContainerLifecycle.created_at.desc())
+              .limit(50).all())
+
+    # Resumen por contenedor: uptime / downtime de los ultimos 7 dias
+    cutoff = datetime.utcnow() - timedelta(days=7)
+    rows = (db.session.query(
+                ContainerLifecycle.container_name,
+                ContainerLifecycle.prev_state,
+                func.sum(ContainerLifecycle.duration_seconds).label("total"),
+            )
+            .filter(ContainerLifecycle.created_at >= cutoff)
+            .filter(ContainerLifecycle.duration_seconds.isnot(None))
+            .group_by(ContainerLifecycle.container_name,
+                      ContainerLifecycle.prev_state)
+            .all())
+
+    summary = {}
+    for name, prev, total in rows:
+        s = summary.setdefault(name, {"running": 0, "exited": 0, "other": 0})
+        if prev == "running":
+            s["running"] += int(total or 0)
+        elif prev == "exited":
+            s["exited"] += int(total or 0)
+        else:
+            s["other"] += int(total or 0)
+
+    return render_template("lifecycle.html", recent=recent, summary=summary)
+
+
 @app.route("/audit")
 @admin_required
 def audit():
@@ -368,5 +407,6 @@ def _bootstrap():
 
 if _wait_for_db():
     _bootstrap()
+    lifecycle.start_tracker(app, db, ContainerLifecycle)
 else:
     raise RuntimeError("DB central no respondio a tiempo")
