@@ -19,35 +19,67 @@ limites a lo que se puede "centralizar".
             ┌───────────┘          │    └──────────┐
             │                      │               │
             ▼                      ▼               ▼
-      ┌──────────┐          ┌────────────┐   ┌──────────┐
-      │ passbolt │          │  dashboard │   │ checkmk  │
-      └────┬─────┘          └─┬───┬───┬──┘   └─────┬────┘
-           │ MySQL            │   │   │ HTTPS API  │
-           │                  │   │   └──────────┐ │
-           │      docker.sock │   │              │ │ RRDtool +
-           │      ┌───────────┘   │              │ │ SQLite
-           │      ▼               │              │ │ (interno
-           │  ┌──────┐            │              │ │  fijo)
-           │  │Docker│            │              │ ▼
-           │  │engine│            │              │ ┌──────────┐
-           │  └──────┘            │              │ │/omd/sites│
-           │                      ▼              │ │/monitor/ │
-           ▼            ┌─────────────────┐      │ └──────────┘
-   ┌──────────────────────────────────────┐     │
-   │       db-central (MariaDB 11)        │◄────┘
-   │   ┌──────────┐    ┌────────────┐     │   solo lectura
-   │   │ passbolt │    │ dashboard  │     │
-   │   └──────────┘    └────────────┘     │
-   └──────────────┬───────────────────────┘
-                  │ dump cada 2h (db-sync)
+      ┌──────────┐          ┌────────────┐   ┌──────────────┐
+      │ passbolt │          │  dashboard │   │   checkmk    │
+      │          │          │   (Flask)  │   │ (NO usa SQL) │
+      └────┬─────┘          └─┬─────┬────┘   └──────┬───────┘
+           │                  │     │               │
+           │ MySQL            │     │ HTTPS API     │ guarda en
+           │ (escribe)        │     │ (LEE estado)  │ archivos locales
+           │                  │     │               │
+           │                  │     └──────────────►│
+           │                  │ MySQL               │
+           │                  │ (escribe)           ▼
+           │                  │              ┌───────────────────┐
+           │                  │              │ /omd/sites/monitor│
+           │                  │              │   RRDtool (.rrd)  │
+           │                  │              │   SQLite          │
+           ▼                  ▼              │   ficheros .mk    │
+   ┌────────────────────────────────────┐    └───────────────────┘
+   │      db-central (MariaDB 11)       │
+   │  ┌──────────┐    ┌────────────┐    │   ❗ Checkmk NO escribe
+   │  │ passbolt │    │ dashboard  │    │      ni lee de aqui.
+   │  └──────────┘    └────────────┘    │      Es totalmente
+   └──────────────┬─────────────────────┘      independiente.
+                  │
+                  │ db-sync hace dump cada 1h
                   ▼
-   ┌──────────────────────────────────────┐
-   │        db-mirror (MariaDB 11)        │   espejo de seguridad
-   │   ┌──────────┐    ┌────────────┐     │
-   │   │ passbolt │    │ dashboard  │     │
-   │   └──────────┘    └────────────┘     │
-   └──────────────────────────────────────┘
+   ┌────────────────────────────────────┐
+   │      db-mirror (MariaDB 11)        │
+   │  ┌──────────┐    ┌────────────┐    │   Copia de seguridad
+   │  │ passbolt │    │ dashboard  │    │   solo de passbolt
+   │  └──────────┘    └────────────┘    │   y dashboard.
+   └────────────────────────────────────┘
 ```
+
+### Por que Checkmk esta separado en el diagrama
+
+| Razon | Explicacion |
+|---|---|
+| **Sin driver SQL en el producto** | Checkmk no tiene parametro tipo `--database mysql://...`. Su core fue compilado para usar RRDtool y SQLite, punto. |
+| **RRDtool es 10–100x mas rapido para metricas** | Para guardar millones de puntos por hora (CPU, mem, disco) RRDtool gana lejos a cualquier SQL. Mover a MySQL te haria mas lento. |
+| **Modificar Checkmk se rompe en cada update** | Habria que tocar codigo fuente. La proxima version revierte el cambio o falla la migracion. |
+| **No vale la pena** | Lo que queres saber de Checkmk (que host esta caido, que CPU sube) lo obtenes via su API REST sin necesidad de cambiar nada |
+
+### Como entonces "unimos" Checkmk al stack
+
+El dashboard custom funciona como **agregador**: pide a Checkmk via API
+"¿como esta el host X?" y lo muestra en la misma pantalla donde aparece
+Passbolt y los contenedores. El usuario ve **un solo panel unificado**
+aunque por detras los datos vivan en dos lugares distintos.
+
+```
+   dashboard ─────HTTPS GET───────► Checkmk API
+                                         │
+                                         ▼
+                                    RRDtool / SQLite
+                                    (storage interno)
+```
+
+Esto se llama **federacion**: cada app sigue duena de sus datos, y un
+componente arriba (el dashboard) los presenta unificados al usuario.
+Es lo opuesto a **centralizacion** (todos escriben en un solo lugar) y
+es el patron correcto cuando el producto no soporta DB externa.
 
 ---
 
