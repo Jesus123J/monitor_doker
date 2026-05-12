@@ -113,6 +113,63 @@ LIMIT 30;
 | `/db-central` (admin) | Cualquier tabla con sus filas |
 | `/schema` (admin) | Estructura (columnas) de cada tabla |
 
+### ⚠️ Sí, las caidas y reinicios SI se guardan
+
+Cada vez que un contenedor cambia de estado, el worker `lifecycle.py`
+inserta una fila en `dashboard.container_lifecycle`. Es persistente —
+queda en la DB para siempre (hasta que la borres) y se replica al mirror
+en el proximo sync.
+
+**Esquema de la tabla:**
+
+| Columna | Que es |
+|---|---|
+| `id` | Auto incrementa |
+| `container_name` | Nombre del contenedor |
+| `prev_state` | Estado anterior (`running`, `exited`, `restarting`, `paused`, NULL si es primer registro) |
+| `new_state` | Estado nuevo |
+| `health` | Resultado del healthcheck (`healthy`, `unhealthy`, `starting`, `n/a`) |
+| `duration_seconds` | Cuanto tiempo duro el estado **anterior** |
+| `detail` | Texto descriptivo de la transicion |
+| `created_at` | Fecha y hora del evento (UTC) |
+
+**Queries listas para auditoria:**
+
+```sql
+-- Todas las caidas (exited) en los ultimos 7 dias
+SELECT container_name, created_at, duration_seconds, detail
+FROM dashboard.container_lifecycle
+WHERE new_state = 'exited'
+  AND created_at > NOW() - INTERVAL 7 DAY
+ORDER BY created_at DESC;
+
+-- Cuanto tiempo total estuvo apagado cada contenedor en la ultima semana
+SELECT container_name,
+       SUM(duration_seconds) AS segundos_apagado
+FROM dashboard.container_lifecycle
+WHERE prev_state = 'exited'
+  AND created_at > NOW() - INTERVAL 7 DAY
+GROUP BY container_name
+ORDER BY segundos_apagado DESC;
+
+-- Contenedores que mas se reiniciaron
+SELECT container_name, COUNT(*) AS reinicios
+FROM dashboard.container_lifecycle
+WHERE prev_state = 'exited' AND new_state = 'running'
+GROUP BY container_name
+ORDER BY reinicios DESC;
+
+-- Transiciones a unhealthy (problemas de salud)
+SELECT container_name, created_at, detail
+FROM dashboard.container_lifecycle
+WHERE detail LIKE 'health % -> unhealthy'
+ORDER BY created_at DESC;
+```
+
+**Desde la UI sin escribir SQL:** ir a `/lifecycle` muestra exactamente lo
+mismo en formato visual: uptime / downtime por contenedor + timeline de
+eventos.
+
 ---
 
 ## 3. Checkmk — NO usa MariaDB
