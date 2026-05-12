@@ -37,6 +37,7 @@
         <a class="nav-link" href="{{ url_for('demo') }}">Demo</a>
         <a class="nav-link" href="{{ url_for('problems') }}">Problemas</a>
         <a class="nav-link" href="{{ url_for('lifecycle_view') }}">Ciclo de vida</a>
+        <a class="nav-link" href="{{ url_for('checkmk_history') }}">Historial Checkmk</a>
         <a class="nav-link" href="{{ url_for('mirror') }}">Mirror DB</a>
         {% if current_user.is_admin %}
           <a class="nav-link" href="{{ url_for('users_list') }}">Usuarios</a>

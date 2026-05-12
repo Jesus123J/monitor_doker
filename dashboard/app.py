@@ -12,8 +12,10 @@ from flask_login import (
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, IntegrityError
 
-from models import db, User, MonitoredTarget, StatusLog, AuditLog, ContainerLifecycle
+from models import (db, User, MonitoredTarget, StatusLog, AuditLog,
+                    ContainerLifecycle, CheckmkSnapshot)
 import lifecycle
+import checkmk_snapshotter
 from monitor import (
     docker_containers, passbolt_status, checkmk_status, db_status,
     container_logs, container_stats, container_inspect, container_action,
@@ -286,6 +288,40 @@ def mirror():
     return render_template("mirror.html", info=info)
 
 
+@app.route("/checkmk-history")
+@login_required
+def checkmk_history():
+    from sqlalchemy import func
+    from datetime import timedelta
+
+    cutoff = datetime.utcnow() - timedelta(days=7)
+
+    # Ultimos 100 snapshots
+    recent = (CheckmkSnapshot.query
+              .filter(CheckmkSnapshot.snapshot_at >= cutoff)
+              .order_by(CheckmkSnapshot.snapshot_at.desc())
+              .limit(100).all())
+
+    # Stats por host (ultimos 7 dias)
+    rows = (db.session.query(
+                CheckmkSnapshot.host_name,
+                CheckmkSnapshot.state_text,
+                func.count(CheckmkSnapshot.id).label("n"),
+            )
+            .filter(CheckmkSnapshot.snapshot_at >= cutoff)
+            .group_by(CheckmkSnapshot.host_name, CheckmkSnapshot.state_text)
+            .all())
+    summary = {}
+    for host, st, n in rows:
+        s = summary.setdefault(host, {"OK": 0, "WARN": 0, "CRIT": 0,
+                                     "UNKNOWN": 0, "total": 0})
+        s[st or "UNKNOWN"] += int(n)
+        s["total"] += int(n)
+
+    return render_template("checkmk_history.html",
+                           recent=recent, summary=summary)
+
+
 @app.route("/lifecycle")
 @login_required
 def lifecycle_view():
@@ -459,5 +495,6 @@ def _bootstrap():
 if _wait_for_db():
     _bootstrap()
     lifecycle.start_tracker(app, db, ContainerLifecycle)
+    checkmk_snapshotter.start_snapshotter(app, db, CheckmkSnapshot)
 else:
     raise RuntimeError("DB central no respondio a tiempo")
