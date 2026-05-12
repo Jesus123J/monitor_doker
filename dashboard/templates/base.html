@@ -61,6 +61,13 @@
   </div>
 </nav>
 
+<div id="loading-overlay" aria-hidden="true">
+  <div class="panel">
+    <div class="spinner-border text-primary"></div>
+    <span id="loading-msg">Procesando...</span>
+  </div>
+</div>
+
 <main class="container">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in messages %}
@@ -72,6 +79,38 @@
 </main>
 
 <script>
+  // Loading overlay global: cualquier form que haga submit lo muestra,
+  // ademas el boton del submit recibe estado .is-loading.
+  // Formularios con data-no-overlay="1" no lo activan (ej. login).
+  (() => {
+    const overlay = document.getElementById("loading-overlay");
+    const msg = document.getElementById("loading-msg");
+
+    function showOverlay(text) {
+      msg.textContent = text || "Procesando...";
+      overlay.classList.add("active");
+    }
+    window.__showLoading = showOverlay;
+    window.__hideLoading = () => overlay.classList.remove("active");
+
+    document.addEventListener("submit", (e) => {
+      const form = e.target;
+      if (form.dataset.noOverlay === "1") return;
+      // Spinner sobre el boton clickeado
+      const btn = e.submitter || form.querySelector('button[type="submit"], button:not([type])');
+      if (btn) btn.classList.add("is-loading");
+      // Overlay global con mensaje del data-loading-msg si existe
+      showOverlay(form.dataset.loadingMsg || "Procesando...");
+    }, true);
+
+    // Para enlaces que disparan accion (con data-loading)
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest("[data-loading]");
+      if (!a) return;
+      showOverlay(a.dataset.loading);
+    });
+  })();
+
   document.getElementById("theme-toggle")?.addEventListener("click", () => {
     const html = document.documentElement;
     const next = html.getAttribute("data-bs-theme") === "dark" ? "light" : "dark";

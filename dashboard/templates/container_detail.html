@@ -21,18 +21,18 @@
     <p class="small text-muted mb-2">
       Cada accion queda registrada en <a href="{{ url_for('audit') }}">Auditoria</a>.
     </p>
-    <form method="post" action="{{ url_for('container_act', name=info.name) }}" class="d-inline">
+    <form method="post" action="{{ url_for('container_act', name=info.name) }}" class="d-inline" data-loading-msg="Iniciando contenedor...">
       <button name="action" value="start" class="btn btn-success btn-sm">
         <i class="bi bi-play-fill"></i> Start
       </button>
     </form>
-    <form method="post" action="{{ url_for('container_act', name=info.name) }}" class="d-inline"
+    <form method="post" action="{{ url_for('container_act', name=info.name) }}" class="d-inline" data-loading-msg="Aplicando accion al contenedor..."
           onsubmit="return confirm('Detener {{ info.name }}?');">
       <button name="action" value="stop" class="btn btn-danger btn-sm">
         <i class="bi bi-stop-fill"></i> Stop
       </button>
     </form>
-    <form method="post" action="{{ url_for('container_act', name=info.name) }}" class="d-inline"
+    <form method="post" action="{{ url_for('container_act', name=info.name) }}" class="d-inline" data-loading-msg="Aplicando accion al contenedor..."
           onsubmit="return confirm('Reiniciar {{ info.name }}?');">
       <button name="action" value="restart" class="btn btn-warning btn-sm">
         <i class="bi bi-arrow-clockwise"></i> Restart

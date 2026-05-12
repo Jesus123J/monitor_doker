@@ -95,7 +95,8 @@
   </table>
   {% if current_user.is_admin %}
     <div class="card-footer text-end">
-      <form method="post" action="{{ url_for('mirror_sync_now') }}" class="d-inline">
+      <form method="post" action="{{ url_for('mirror_sync_now') }}" class="d-inline"
+            data-loading-msg="Sincronizando db-central -> db-mirror...">
         <button class="btn btn-warning btn-sm">
           <i class="bi bi-arrow-repeat"></i> Sincronizar ahora
         </button>

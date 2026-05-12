@@ -140,6 +140,64 @@ def container_action(name: str, action: str):
         return False, str(e)
 
 
+def db_rows(host: str, db_name: str, table: str, password: str, limit: int = 25):
+    """Devuelve las primeras N filas de una tabla, ocultando datos sensibles."""
+    from sqlalchemy import create_engine
+    import re
+
+    # Whitelist defensiva
+    if not re.match(r"^[a-zA-Z0-9_]+$", table):
+        return {"error": "nombre de tabla invalido"}
+    if db_name not in ("passbolt", "dashboard"):
+        return {"error": "db invalida"}
+
+    SENSITIVE = {
+        # tabla -> {columna: estrategia}
+        "users":           {"password_hash": "mask", "totp_secret": "mask"},
+        "secrets":         {"data": "cipher"},
+        "gpgkeys":         {"armored_key": "truncate"},
+        "authentication_tokens": {"token": "mask"},
+        "auth_logs":       {"user_agent": "truncate"},
+    }
+
+    def _mask(val, strategy):
+        if val is None:
+            return None
+        s = str(val)
+        if strategy == "mask":
+            return "***"
+        if strategy == "cipher":
+            return "🔒 " + s[:60].replace("\n", " ") + "…"
+        if strategy == "truncate":
+            return s[:80] + "…" if len(s) > 80 else s
+        return s
+
+    try:
+        url = (f"mysql+pymysql://root:{password}@{host}/{db_name}"
+               "?charset=utf8mb4&connect_timeout=3")
+        eng = create_engine(url, pool_pre_ping=True)
+        with eng.connect() as conn:
+            cols = [r[0] for r in conn.execute(
+                text(f"SHOW COLUMNS FROM `{table}`"))]
+            rows = []
+            result = conn.execute(text(f"SELECT * FROM `{table}` LIMIT {limit}"))
+            mask_map = SENSITIVE.get(table, {})
+            for r in result:
+                row = {}
+                for i, c in enumerate(cols):
+                    val = r[i]
+                    if c in mask_map:
+                        val = _mask(val, mask_map[c])
+                    elif val is not None:
+                        s = str(val)
+                        val = s[:200] + "…" if len(s) > 200 else s
+                    row[c] = val
+                rows.append(row)
+            return {"columns": cols, "rows": rows, "count": len(rows), "limit": limit}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def db_activity_diff(db_host: str, mirror_host: str, db_password: str):
     """Compara conteos de filas entre db-central y db-mirror.
 

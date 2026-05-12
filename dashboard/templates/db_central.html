@@ -1,100 +1,142 @@
 {% extends "base.html" %}
-{% block title %}DB central{% endblock %}
+{% block title %}DB explorer{% endblock %}
+
+{% macro db_block(overview, host_alias) %}
+  {% for schema in overview %}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>
+          <i class="bi bi-database-fill"></i>
+          Schema <strong>{{ schema.db }}</strong>
+        </span>
+        <span>
+          <span class="badge text-bg-secondary me-1">{{ schema.tables|length }} tablas</span>
+          <span class="badge text-bg-info">{{ schema.total_rows }} filas</span>
+        </span>
+      </div>
+
+      {% if schema.error %}
+        <div class="card-body text-danger small font-monospace">{{ schema.error }}</div>
+      {% else %}
+        <div class="list-group list-group-flush">
+          {% for t in schema.tables %}
+            <div class="list-group-item table-row" data-host="{{ host_alias }}" data-db="{{ schema.db }}" data-table="{{ t.name }}">
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <code>{{ t.name }}</code>
+                  <small class="text-muted ms-2">{{ t.rows }} fila(s)</small>
+                </div>
+                <button class="btn btn-sm btn-outline-primary toggle-rows" type="button">
+                  <i class="bi bi-eye"></i> Ver filas
+                </button>
+              </div>
+              <div class="rows-container mt-2" style="display: none;">
+                <div class="text-muted small">Click 'Ver filas' para cargar.</div>
+              </div>
+            </div>
+          {% else %}
+            <div class="list-group-item text-center text-muted">
+              Sin tablas todavia
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+{% endmacro %}
+
 {% block content %}
 
-<h3><i class="bi bi-database-fill"></i> DB central (db-central)</h3>
+<h3><i class="bi bi-database-fill"></i> Explorador de DB</h3>
 <p class="text-muted small">
-  Esta es la base de datos MariaDB compartida. Hospeda dos schemas: uno para Passbolt
-  y otro para el dashboard custom. Las filas que ves abajo son <strong>datos reales en vivo</strong>,
-  consultadas en este momento.
+  Dos instancias de MariaDB con las mismas bases. <strong>Central</strong> es
+  donde Passbolt y el dashboard escriben en vivo. <strong>Espejo</strong> es la copia que
+  se refresca cada hora. Click en una tabla para ver sus filas (secrets enmascarados).
 </p>
 
-<div class="row g-3 mb-3">
-  <div class="col-md-4">
-    <div class="card border-success shadow-sm h-100">
-      <div class="card-body">
-        <h6 class="card-title text-success">
-          <i class="bi bi-check-circle-fill"></i> Passbolt usa esta DB
-        </h6>
-        <p class="small mb-0 text-muted">
-          Configurado en docker-compose con
-          <code>DATASOURCES_DEFAULT_HOST: db-central</code>.
-          Todas las contrasenas, usuarios y grupos viven aqui (cifrados con PGP).
-        </p>
-      </div>
-    </div>
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item">
+    <a class="nav-link active" id="tab-central" data-bs-toggle="tab" href="#pane-central" role="tab">
+      <i class="bi bi-hdd-fill"></i> DB Central
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" id="tab-mirror" data-bs-toggle="tab" href="#pane-mirror" role="tab">
+      <i class="bi bi-hdd-stack-fill"></i> DB Espejo
+    </a>
+  </li>
+</ul>
+
+<div class="tab-content">
+  <div class="tab-pane fade show active" id="pane-central" role="tabpanel">
+    {{ db_block(central, 'central') }}
   </div>
-  <div class="col-md-4">
-    <div class="card border-success shadow-sm h-100">
-      <div class="card-body">
-        <h6 class="card-title text-success">
-          <i class="bi bi-check-circle-fill"></i> Dashboard usa esta DB
-        </h6>
-        <p class="small mb-0 text-muted">
-          Usuarios del panel, audit log y catalogo de objetivos
-          monitoreados.
-        </p>
-      </div>
-    </div>
-  </div>
-  <div class="col-md-4">
-    <div class="card border-warning shadow-sm h-100">
-      <div class="card-body">
-        <h6 class="card-title text-warning">
-          <i class="bi bi-x-circle-fill"></i> Checkmk NO usa esta DB
-        </h6>
-        <p class="small mb-0 text-muted">
-          Checkmk guarda metricas en <strong>RRDtool</strong> (formato propietario
-          de series de tiempo). No soporta MySQL externo por diseno —
-          ver <a href="/static/../../../ARQUITECTURA.md">ARQUITECTURA.md</a>.
-        </p>
-      </div>
-    </div>
+  <div class="tab-pane fade" id="pane-mirror" role="tabpanel">
+    {{ db_block(mirror, 'mirror') }}
   </div>
 </div>
 
-{% for db in overview %}
-  <div class="card shadow-sm mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <span>
-        <i class="bi bi-table"></i>
-        Schema <strong>{{ db.db }}</strong>
-      </span>
-      <span>
-        <span class="badge text-bg-secondary me-1">{{ db.tables|length }} tablas</span>
-        <span class="badge text-bg-info">{{ db.total_rows }} filas en total</span>
-      </span>
-    </div>
-    {% if db.error %}
-      <div class="card-body text-danger small font-monospace">{{ db.error }}</div>
-    {% else %}
-      <table class="table table-sm mb-0">
-        <thead class="table-light">
-          <tr>
-            <th>Tabla</th>
-            <th class="text-end">Filas (aprox)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for t in db.tables %}
-            <tr>
-              <td><code>{{ t.name }}</code></td>
-              <td class="text-end">{{ t.rows }}</td>
-            </tr>
-          {% else %}
-            <tr><td colspan="2" class="text-center text-muted">Sin tablas todavia</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% endif %}
-  </div>
-{% endfor %}
+<script>
+(() => {
+  function escapeHTML(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
 
-<div class="alert alert-info">
-  <strong>Tip:</strong> si <code>passbolt.resources</code> esta en 0 filas, es porque
-  todavia nadie guardo una contrasena en Passbolt — no porque Passbolt este desconectado
-  de la DB central. Las tablas <code>users</code>, <code>roles</code> y <code>profiles</code>
-  ya deberian tener filas (las crea Passbolt en su instalacion).
-</div>
+  function renderRows(data) {
+    if (data.error) {
+      return `<div class="alert alert-danger small">${escapeHTML(data.error)}</div>`;
+    }
+    if (!data.rows.length) {
+      return '<div class="text-muted small">(tabla vacia)</div>';
+    }
+    const head = '<tr>' + data.columns.map(c => `<th>${escapeHTML(c)}</th>`).join('') + '</tr>';
+    const body = data.rows.map(r => '<tr>' + data.columns.map(c => {
+      const v = r[c];
+      if (v === null) return '<td class="text-muted fst-italic">NULL</td>';
+      return `<td class="small">${escapeHTML(v)}</td>`;
+    }).join('') + '</tr>').join('');
+    const note = data.count >= data.limit
+      ? `<div class="text-muted small mt-1">Mostrando ${data.count} filas (limit). Hay mas.</div>`
+      : `<div class="text-muted small mt-1">${data.count} fila(s) mostradas.</div>`;
+    return `<div class="table-responsive"><table class="table table-sm table-striped mb-0"><thead class="table-light">${head}</thead><tbody>${body}</tbody></table></div>${note}`;
+  }
+
+  document.querySelectorAll(".toggle-rows").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const row = btn.closest(".table-row");
+      const container = row.querySelector(".rows-container");
+      const isOpen = container.style.display !== "none";
+
+      if (isOpen) {
+        container.style.display = "none";
+        btn.innerHTML = '<i class="bi bi-eye"></i> Ver filas';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Cargando...';
+      container.style.display = "block";
+      container.innerHTML = '<div class="text-muted small">Consultando DB...</div>';
+
+      try {
+        const u = new URL("/api/db-rows", location.origin);
+        u.searchParams.set("host", row.dataset.host);
+        u.searchParams.set("db", row.dataset.db);
+        u.searchParams.set("table", row.dataset.table);
+        const r = await fetch(u);
+        const data = await r.json();
+        container.innerHTML = renderRows(data);
+      } catch (e) {
+        container.innerHTML = `<div class="alert alert-danger small">Error: ${escapeHTML(e.message)}</div>`;
+      }
+
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-eye-slash"></i> Ocultar';
+    });
+  });
+})();
+</script>
 
 {% endblock %}

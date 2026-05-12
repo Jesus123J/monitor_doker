@@ -18,7 +18,7 @@ from monitor import (
     docker_containers, passbolt_status, checkmk_status, db_status,
     container_logs, container_stats, container_inspect, container_action,
     find_problems, db_tables, mirror_status, db_overview,
-    trigger_mirror_sync, db_activity_diff,
+    trigger_mirror_sync, db_activity_diff, db_rows,
 )
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -217,12 +217,35 @@ def users_delete(user_id):
 @app.route("/db-central")
 @admin_required
 def db_central():
-    overview = db_overview(
-        db_host=os.environ.get("DB_HOST", "db-central"),
-        db_user="root",
-        db_password=os.environ.get("DB_ROOT_PASSWORD", ""),
+    pwd = os.environ.get("DB_ROOT_PASSWORD", "")
+    central_host = os.environ.get("DB_HOST", "db-central")
+    mirror_host = os.environ.get("MIRROR_HOST", "db-mirror")
+
+    return render_template(
+        "db_central.html",
+        central=db_overview(central_host, "root", pwd),
+        mirror=db_overview(mirror_host, "root", pwd),
     )
-    return render_template("db_central.html", overview=overview)
+
+
+@app.route("/api/db-rows")
+@admin_required
+def api_db_rows():
+    host_alias = request.args.get("host", "central")
+    db_name = request.args.get("db", "")
+    table = request.args.get("table", "")
+    host_map = {
+        "central": os.environ.get("DB_HOST", "db-central"),
+        "mirror": os.environ.get("MIRROR_HOST", "db-mirror"),
+    }
+    if host_alias not in host_map:
+        return {"error": "host invalido"}, 400
+    return db_rows(
+        host=host_map[host_alias],
+        db_name=db_name,
+        table=table,
+        password=os.environ.get("DB_ROOT_PASSWORD", ""),
+    )
 
 
 @app.route("/demo")
