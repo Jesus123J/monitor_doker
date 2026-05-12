@@ -225,6 +225,12 @@ def db_central():
     return render_template("db_central.html", overview=overview)
 
 
+@app.route("/demo")
+@login_required
+def demo():
+    return render_template("demo.html")
+
+
 @app.route("/mirror/sync", methods=["POST"])
 @admin_required
 def mirror_sync_now():
@@ -234,6 +240,15 @@ def mirror_sync_now():
     flash(f"Sync manual: {'OK' if ok else 'FAIL'} — {detail[:200]}",
           "success" if ok else "danger")
     return redirect(url_for("mirror"))
+
+
+@app.route("/api/mirror/sync", methods=["POST"])
+@admin_required
+def api_mirror_sync():
+    ok, detail = trigger_mirror_sync()
+    _audit(action="mirror_sync_manual", target="db-mirror",
+           success=ok, detail=detail)
+    return {"ok": ok, "detail": detail[:500]}, (200 if ok else 500)
 
 
 @app.route("/mirror")

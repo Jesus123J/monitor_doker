@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}Demo guiada{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0"><i class="bi bi-rocket-takeoff-fill"></i> Demo guiada: replicacion central → espejo</h3>
+  <button id="demo-reset" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-counterclockwise"></i> Reiniciar demo
+  </button>
+</div>
+
+<p class="text-muted">
+  Esta demo te lleva paso a paso por el flujo:
+  guardar una contraseña en Passbolt → ver que aparece en <code>db-central</code> →
+  ver el delta con <code>db-mirror</code> → forzar sync → ver que se igualaron.
+  Cada paso se marca como hecho automaticamente.
+</p>
+
+<ol class="demo-steps">
+
+  <li class="demo-step" data-step="1">
+    <div class="step-bullet">1</div>
+    <div class="step-body">
+      <div class="d-flex justify-content-between">
+        <h5>Snapshot inicial</h5>
+        <span class="badge step-badge">pendiente</span>
+      </div>
+      <p class="text-muted small mb-2">
+        Guardo el conteo actual de <code>passbolt.resources</code> y
+        <code>passbolt.users</code> en el navegador. Esto sirve de base
+        para detectar cambios.
+      </p>
+      <div class="small">
+        <strong>Baseline:</strong>
+        <span id="baseline-resources">—</span> resources,
+        <span id="baseline-users">—</span> usuarios.
+      </div>
+    </div>
+  </li>
+
+  <li class="demo-step" data-step="2">
+    <div class="step-bullet">2</div>
+    <div class="step-body">
+      <div class="d-flex justify-content-between">
+        <h5>Guarda una contrasena en Passbolt</h5>
+        <span class="badge step-badge">pendiente</span>
+      </div>
+      <p class="text-muted small mb-2">
+        Abre Passbolt, entra con tu passphrase y crea una contrasena de
+        prueba. Yo me doy cuenta cuando la fila aparece en la DB.
+      </p>
+      <a href="https://localhost:8443/" target="_blank" class="btn btn-primary btn-sm">
+        <i class="bi bi-box-arrow-up-right"></i> Abrir Passbolt
+      </a>
+      <div class="small mt-2">
+        Estado actual: <strong id="live-resources">—</strong> resources en
+        <code>db-central.passbolt</code>.
+      </div>
+    </div>
+  </li>
+
+  <li class="demo-step" data-step="3">
+    <div class="step-bullet">3</div>
+    <div class="step-body">
+      <div class="d-flex justify-content-between">
+        <h5>Verifica el delta con el espejo</h5>
+        <span class="badge step-badge">pendiente</span>
+      </div>
+      <p class="text-muted small mb-2">
+        El mirror solo replica cada 1 hora (o cuando lo disparas a mano),
+        asi que va a quedar atras. Eso es exactamente lo que queremos
+        ver: prueba que las dos DBs son distintas en este momento.
+      </p>
+      <div class="small">
+        Diff actual de <code>passbolt.resources</code>:
+        <strong id="live-diff">—</strong>
+      </div>
+    </div>
+  </li>
+
+  <li class="demo-step" data-step="4">
+    <div class="step-bullet">4</div>
+    <div class="step-body">
+      <div class="d-flex justify-content-between">
+        <h5>Sincroniza al espejo</h5>
+        <span class="badge step-badge">pendiente</span>
+      </div>
+      <p class="text-muted small mb-2">
+        Lanza el sync manual. Eso ejecuta <code>sync-now.sh</code> dentro
+        del contenedor <code>db-sync</code>, que hace <code>mariadb-dump</code>
+        de db-central y lo importa a db-mirror.
+      </p>
+      {% if current_user.is_admin %}
+        <button id="demo-sync-btn" class="btn btn-warning btn-sm">
+          <i class="bi bi-arrow-repeat"></i> Sincronizar ahora
+        </button>
+        <span id="demo-sync-msg" class="ms-2 small"></span>
+      {% else %}
+        <div class="alert alert-warning small mb-0">
+          Necesitas ser admin para disparar sync manual. Pide a un admin
+          que lo haga o espera el sync automatico horario.
+        </div>
+      {% endif %}
+    </div>
+  </li>
+
+  <li class="demo-step" data-step="5">
+    <div class="step-bullet">5</div>
+    <div class="step-body">
+      <div class="d-flex justify-content-between">
+        <h5>Confirma que se igualaron</h5>
+        <span class="badge step-badge">pendiente</span>
+      </div>
+      <p class="text-muted small mb-2">
+        Ahora central y mirror tienen el mismo conteo. La diferencia debe
+        ser 0. Esto cierra el ciclo: la contrasena que guardaste vive
+        primero en db-central y luego, sincronizada, en db-mirror.
+      </p>
+      <div class="small">
+        <code>passbolt.resources</code>:
+        central=<strong id="final-central">—</strong>,
+        mirror=<strong id="final-mirror">—</strong>,
+        diff=<strong id="final-diff">—</strong>
+      </div>
+    </div>
+  </li>
+</ol>
+
+<script>
+(() => {
+  const KEY = "demo:baseline";
+
+  function getBaseline() {
+    const raw = localStorage.getItem(KEY);
+    return raw ? JSON.parse(raw) : null;
+  }
+  function setBaseline(obj) {
+    localStorage.setItem(KEY, JSON.stringify(obj));
+  }
+  function resetBaseline() {
+    localStorage.removeItem(KEY);
+    location.reload();
+  }
+
+  function setStepState(num, state) {
+    // state: pending | active | done
+    const el = document.querySelector(`.demo-step[data-step="${num}"]`);
+    if (!el) return;
+    el.classList.remove("step-pending", "step-active", "step-done");
+    el.classList.add(`step-${state}`);
+    const badge = el.querySelector(".step-badge");
+    if (state === "done") {
+      badge.textContent = "hecho";
+      badge.className = "badge step-badge text-bg-success";
+    } else if (state === "active") {
+      badge.textContent = "en curso";
+      badge.className = "badge step-badge text-bg-info";
+    } else {
+      badge.textContent = "pendiente";
+      badge.className = "badge step-badge text-bg-secondary";
+    }
+  }
+
+  async function poll() {
+    let data;
+    try {
+      const r = await fetch("/api/status", { cache: "no-store" });
+      data = await r.json();
+    } catch (e) {
+      return;
+    }
+    const resTbl = data.activity.find(a => a.db === "passbolt" && a.table === "resources");
+    const usrTbl = data.activity.find(a => a.db === "passbolt" && a.table === "users");
+    if (!resTbl) return;
+
+    let baseline = getBaseline();
+    if (!baseline) {
+      baseline = {
+        resources: resTbl.central ?? 0,
+        users: usrTbl ? (usrTbl.central ?? 0) : 0,
+      };
+      setBaseline(baseline);
+    }
+
+    document.getElementById("baseline-resources").textContent = baseline.resources;
+    document.getElementById("baseline-users").textContent = baseline.users;
+    document.getElementById("live-resources").textContent = resTbl.central ?? "?";
+    document.getElementById("live-diff").textContent = resTbl.diff ?? "?";
+    document.getElementById("final-central").textContent = resTbl.central ?? "?";
+    document.getElementById("final-mirror").textContent = resTbl.mirror ?? "?";
+    document.getElementById("final-diff").textContent = resTbl.diff ?? "?";
+
+    // Step 1 — siempre done una vez hay baseline
+    setStepState(1, "done");
+
+    // Step 2 — done cuando resources sube vs baseline
+    const grew = (resTbl.central ?? 0) > baseline.resources;
+    setStepState(2, grew ? "done" : "active");
+
+    // Step 3 — done cuando el delta es positivo
+    setStepState(3, !grew ? "pending" : ((resTbl.diff || 0) > 0 ? "done" : "active"));
+
+    // Step 4 — activo si hay delta, done si diff vuelve a 0 despues de haber tenido delta
+    if (!grew) {
+      setStepState(4, "pending");
+      setStepState(5, "pending");
+    } else if ((resTbl.diff || 0) > 0) {
+      setStepState(4, "active");
+      setStepState(5, "pending");
+    } else {
+      setStepState(4, "done");
+      setStepState(5, "done");
+    }
+  }
+
+  document.getElementById("demo-reset").addEventListener("click", resetBaseline);
+
+  const syncBtn = document.getElementById("demo-sync-btn");
+  if (syncBtn) {
+    syncBtn.addEventListener("click", async () => {
+      syncBtn.disabled = true;
+      const msg = document.getElementById("demo-sync-msg");
+      msg.textContent = "Ejecutando...";
+      try {
+        const r = await fetch("/api/mirror/sync", { method: "POST" });
+        const d = await r.json();
+        msg.textContent = d.ok ? "Sync OK" : `Fallo: ${d.detail}`;
+        msg.className = "ms-2 small " + (d.ok ? "text-success" : "text-danger");
+      } catch (e) {
+        msg.textContent = "Error de red";
+        msg.className = "ms-2 small text-danger";
+      }
+      syncBtn.disabled = false;
+      poll();
+    });
+  }
+
+  poll();
+  setInterval(poll, 5000);
+})();
+</script>
+
+{% endblock %}
