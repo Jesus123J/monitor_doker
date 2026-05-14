@@ -26,6 +26,7 @@ Stack en Docker Compose con:
 | 🚀 [`INICIO.md`](INICIO.md) | Recien clonaste, queres arrancar |
 | 📐 [`ARQUITECTURA.md`](ARQUITECTURA.md) | Queres entender como funciona por dentro |
 | 💾 [`DATOS_GUARDADOS.md`](DATOS_GUARDADOS.md) | Donde guarda cada app sus datos (tablas, logs, auditoria) |
+| 🔗 [`UNIFICACION_DB.md`](UNIFICACION_DB.md) | Diseno de la unificacion: 4 bases, read-only, cross-queries, backups |
 | 🌐 [`DEPLOY.md`](DEPLOY.md) | Queres subirlo a un server real |
 
 ## Stack tecnico

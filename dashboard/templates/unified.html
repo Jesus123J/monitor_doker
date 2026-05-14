@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}Vista unificada{% endblock %}
+
+{% set crit = {
+  'critical': 'danger',
+  'high':     'warning',
+  'medium':   'info',
+  'low':      'secondary'
+} %}
+
+{% set state = {
+  'OK':      'success',
+  'WARN':    'warning',
+  'CRIT':    'danger',
+  'UNKNOWN': 'secondary'
+} %}
+
+{% block content %}
+
+<h3><i class="bi bi-diagram-3-fill"></i> Vista unificada (3 bases)</h3>
+<p class="text-muted small">
+  Datos cruzados entre <strong>passbolt</strong>, <strong>checkmk</strong> y
+  <strong>mkmonitor</strong> usando un usuario MySQL con permisos
+  <em>solo de lectura</em> (<code>unified_reader</code>). El agregador no escribe
+  en ninguna de las apps fuente.
+</p>
+
+<!-- ===== Conteo por base ===== -->
+<div class="row g-3 mb-4">
+  {% for db_name, tables in overview.items() %}
+    {% if db_name != 'error' %}
+    <div class="col-md-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-header"><strong>{{ db_name }}</strong></div>
+        <ul class="list-group list-group-flush small">
+          {% for t, n in tables.items() %}
+          <li class="list-group-item d-flex justify-content-between">
+            <code>{{ t }}</code>
+            <span class="badge text-bg-{% if n is none %}secondary{% else %}info{% endif %}">
+              {{ n if n is not none else 'sin acceso' }}
+            </span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+  {% endfor %}
+</div>
+
+<!-- ===== Assets de MKMonitor con cross-data ===== -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><strong>Assets de MKMonitor + estado Checkmk + credenciales Passbolt</strong></div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Asset</th>
+          <th>IP</th>
+          <th>Tipo</th>
+          <th>Criticidad</th>
+          <th>Estado Checkmk</th>
+          <th class="text-end">Incidentes abiertos</th>
+          <th class="text-end">Creds en Passbolt</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in assets %}
+        <tr>
+          <td><code>{{ a.hostname }}</code></td>
+          <td class="text-muted small">{{ a.ip_address or '-' }}</td>
+          <td class="small">{{ a.type }}</td>
+          <td>
+            <span class="badge text-bg-{{ crit.get(a.criticality,'secondary') }}">
+              {{ a.criticality }}
+            </span>
+          </td>
+          <td>
+            {% if a.checkmk_state %}
+              <span class="badge text-bg-{{ state.get(a.checkmk_state,'secondary') }}">
+                {{ a.checkmk_state }}
+              </span>
+            {% else %}
+              <span class="text-muted small">sin snapshot</span>
+            {% endif %}
+          </td>
+          <td class="text-end {% if a.open_incidents %}text-danger{% else %}text-muted{% endif %}">
+            {{ a.open_incidents }}
+          </td>
+          <td class="text-end {% if a.passbolt_resources %}text-success{% else %}text-muted{% endif %}">
+            {{ a.passbolt_resources }}
+          </td>
+        </tr>
+        {% else %}
+          <tr><td colspan="7" class="text-center text-muted">Sin assets en mkmonitor</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== Incidentes con flag de credenciales ===== -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><strong>Incidentes abiertos (MKMonitor) + credenciales disponibles</strong></div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Cuando</th>
+          <th>Host</th>
+          <th>Incidente</th>
+          <th>Severidad</th>
+          <th>Asignado</th>
+          <th class="text-end">Creds Passbolt</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in incidents %}
+        <tr>
+          <td class="small">{{ i.opened_at.strftime('%Y-%m-%d %H:%M') if i.opened_at else '-' }}</td>
+          <td><code>{{ i.hostname or '?' }}</code></td>
+          <td>{{ i.title }}</td>
+          <td>
+            <span class="badge text-bg-{% if i.severity == 'critical' %}danger{% elif i.severity == 'warning' %}warning{% else %}info{% endif %}">
+              {{ i.severity }}
+            </span>
+          </td>
+          <td class="small">{{ i.assigned_name or '-' }}<br><span class="text-muted">{{ i.assigned_email or '' }}</span></td>
+          <td class="text-end">
+            {% if i.credentials_in_passbolt %}
+              <span class="badge text-bg-success">{{ i.credentials_in_passbolt }} disponible(s)</span>
+            {% else %}
+              <span class="badge text-bg-danger">no hay</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+          <tr><td colspan="6" class="text-center text-muted">No hay incidentes abiertos</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== Cross-resources ===== -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><strong>Recursos de Passbolt vinculados a hosts Checkmk / MKMonitor</strong></div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Recurso Passbolt</th>
+          <th>Usuario</th>
+          <th>URI</th>
+          <th>Host Checkmk</th>
+          <th>Asset MKMonitor</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in cross %}
+        <tr>
+          <td>{{ r.resource_name }}</td>
+          <td class="small">{{ r.resource_user }}</td>
+          <td class="small text-muted">{{ r.resource_uri }}</td>
+          <td>
+            {% if r.checkmk_host %}
+              <code>{{ r.checkmk_host }}</code>
+              <span class="badge text-bg-{{ state.get(r.checkmk_state,'secondary') }} ms-1">{{ r.checkmk_state }}</span>
+            {% else %}
+              <span class="text-muted small">sin match</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.mkmonitor_hostname %}
+              <code>{{ r.mkmonitor_hostname }}</code>
+              <span class="badge text-bg-{{ crit.get(r.mkmonitor_criticality,'secondary') }} ms-1">{{ r.mkmonitor_criticality }}</span>
+            {% else %}
+              <span class="text-muted small">sin match</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+          <tr><td colspan="5" class="text-center text-muted">Aun no hay contrasenas en Passbolt para cruzar</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p class="text-muted small">
+  <i class="bi bi-info-circle"></i> JSON equivalente:
+  <a href="{{ url_for('api_unified') }}" target="_blank"><code>GET /api/unified</code></a>
+</p>
+
+{% endblock %}
