@@ -11,6 +11,7 @@ services:
       MYSQL_PASSWORD: ${PASSBOLT_DB_PASSWORD}
       DASHBOARD_DB_USER: ${DASHBOARD_DB_USER}
       DASHBOARD_DB_PASSWORD: ${DASHBOARD_DB_PASSWORD}
+      UNIFIED_READER_PASSWORD: ${UNIFIED_READER_PASSWORD}
     volumes:
       - db_data:/var/lib/mysql
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -63,7 +64,7 @@ services:
       TARGET_HOST: db-mirror
       TARGET_USER: root
       TARGET_PASSWORD: ${DB_ROOT_PASSWORD}
-      DATABASES: passbolt dashboard
+      DATABASES: passbolt dashboard checkmk mkmonitor
       SYNC_INTERVAL_HOURS: ${SYNC_INTERVAL_HOURS:-1}
     volumes:
       - db_sync_status:/var/lib/db-sync
@@ -153,6 +154,8 @@ services:
       DASHBOARD_ADMIN_USER: ${DASHBOARD_ADMIN_USER}
       DASHBOARD_ADMIN_EMAIL: ${DASHBOARD_ADMIN_EMAIL}
       DASHBOARD_ADMIN_PASSWORD: ${DASHBOARD_ADMIN_PASSWORD}
+      UNIFIED_READER_USER: unified_reader
+      UNIFIED_READER_PASSWORD: ${UNIFIED_READER_PASSWORD}
       MIRROR_HOST: db-mirror
       MIRROR_STATUS_FILE: /var/lib/db-sync/last_sync
       DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}

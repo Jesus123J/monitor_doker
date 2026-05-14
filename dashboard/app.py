@@ -16,6 +16,7 @@ from models import (db, User, MonitoredTarget, StatusLog, AuditLog,
                     ContainerLifecycle, CheckmkSnapshot)
 import lifecycle
 import checkmk_snapshotter
+import unified
 from monitor import (
     docker_containers, passbolt_status, checkmk_status, db_status,
     container_logs, container_stats, container_inspect, container_action,
@@ -286,6 +287,46 @@ def mirror():
         mirror_password=os.environ.get("DB_ROOT_PASSWORD", ""),
     )
     return render_template("mirror.html", info=info)
+
+
+@app.route("/unified")
+@login_required
+def unified_view():
+    try:
+        overview = unified.unified_overview()
+    except Exception as e:
+        overview = {"error": str(e)}
+    try:
+        assets = unified.assets_health_summary()
+    except Exception as e:
+        assets = []
+        flash(f"No pude consultar mkmonitor: {e}", "warning")
+    try:
+        incidents = unified.open_incidents_with_passbolt_creds()
+    except Exception:
+        incidents = []
+    try:
+        cross = unified.cross_resources_to_hosts()
+    except Exception:
+        cross = []
+    return render_template("unified.html",
+                           overview=overview, assets=assets,
+                           incidents=incidents, cross=cross)
+
+
+@app.route("/api/unified")
+@login_required
+def api_unified():
+    """JSON unificado: lee de las 4 bases con el usuario read-only."""
+    try:
+        return {
+            "overview":  unified.unified_overview(),
+            "assets":    unified.assets_health_summary(),
+            "incidents": unified.open_incidents_with_passbolt_creds(),
+            "cross":     unified.cross_resources_to_hosts(),
+        }
+    except Exception as e:
+        return {"error": str(e)}, 500
 
 
 @app.route("/checkmk-history")

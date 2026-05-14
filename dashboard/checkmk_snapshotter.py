@@ -47,7 +47,9 @@ def _snapshot_once(app, db, CheckmkSnapshot):
     if not hosts:
         return
 
+    from sqlalchemy import text
     with app.app_context():
+        # 1) Tabla "interna" del dashboard (compatibilidad).
         for h in hosts:
             row = CheckmkSnapshot(
                 host_name=h["name"],
@@ -59,6 +61,25 @@ def _snapshot_once(app, db, CheckmkSnapshot):
             )
             db.session.add(row)
         db.session.commit()
+
+        # 2) Tabla unificada en la base 'checkmk' (la que ve el unified_reader).
+        try:
+            for h in hosts:
+                db.session.execute(text("""
+                    INSERT INTO checkmk.host_snapshots
+                        (host_name, state, state_text, output,
+                         last_check, acknowledged)
+                    VALUES (:n, :s, :st, :o, :lc, :a)
+                """), {
+                    "n": h["name"], "s": h["state"], "st": h["state_text"],
+                    "o": h["output"], "lc": h["last_check"],
+                    "a": 1 if h["acknowledged"] else 0,
+                })
+            db.session.commit()
+        except Exception as e:
+            logger.warning("no pude escribir en checkmk.host_snapshots: %s", e)
+            db.session.rollback()
+
     logger.info("checkmk snapshot: %d hosts guardados", len(hosts))
 
 
