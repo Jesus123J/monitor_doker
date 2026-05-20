@@ -94,24 +94,16 @@ INSERT IGNORE INTO contacts (name, email, phone, role, on_call) VALUES
     ('Jesus Gutierrez', 'jesus@utp.local', '+51 9XX XXX XXX', 'SRE', 1),
     ('Equipo Ops',     'ops@utp.local',   NULL,              'team', 0);
 
-INSERT IGNORE INTO assets (hostname, ip_address, type, criticality, owner_email, description) VALUES
-    ('web-prod-01',    '10.0.0.10',  'server', 'critical', 'jesus@utp.local', 'Servidor web produccion'),
-    ('db-prod-01',     '10.0.0.20',  'server', 'critical', 'jesus@utp.local', 'Base de datos produccion'),
-    ('router-edge',    '10.0.0.1',   'router', 'high',     'ops@utp.local',   'Router de borde'),
-    ('localhost',      '127.0.0.1',  'server', 'low',      'jesus@utp.local', 'Host local de pruebas');
-
-INSERT INTO incidents (asset_id, title, description, severity, status, assigned_to) VALUES
-    ((SELECT id FROM assets WHERE hostname='web-prod-01'),
-     'Latencia alta en web-prod-01',
-     'p95 > 2s durante 10 min',
-     'warning', 'open',
-     (SELECT id FROM contacts WHERE email='jesus@utp.local'));
-
-INSERT INTO alerts (asset_id, metric, value, threshold, level) VALUES
-    ((SELECT id FROM assets WHERE hostname='web-prod-01'),
-     'response_time_ms', 2350, 2000, 'warning'),
-    ((SELECT id FROM assets WHERE hostname='db-prod-01'),
-     'cpu_pct', 95.4, 85, 'critical');
+-- Los 7 servicios del stack como assets. El worker mkmonitor_auto
+-- mantiene esta lista sincronizada con los contenedores reales.
+INSERT IGNORE INTO assets (hostname, type, criticality, owner_email, description) VALUES
+    ('db-central', 'container', 'critical', 'jesus@utp.local', 'MariaDB central — passbolt + dashboard + checkmk + mkmonitor'),
+    ('db-mirror',  'container', 'high',     'jesus@utp.local', 'Espejo de db-central refrescado cada 1h'),
+    ('db-sync',    'container', 'medium',   'jesus@utp.local', 'Worker que copia db-central -> db-mirror'),
+    ('passbolt',   'container', 'critical', 'jesus@utp.local', 'Gestor de contrasenas'),
+    ('checkmk',    'container', 'high',     'jesus@utp.local', 'Monitoreo Checkmk Raw'),
+    ('dashboard',  'container', 'high',     'jesus@utp.local', 'Panel custom Flask'),
+    ('nginx',      'container', 'critical', 'jesus@utp.local', 'Reverse proxy + TLS');
 
 -- =============================
 -- Usuario READ-ONLY para el agregador

@@ -16,6 +16,7 @@ from models import (db, User, MonitoredTarget, StatusLog, AuditLog,
                     ContainerLifecycle, CheckmkSnapshot)
 import lifecycle
 import checkmk_snapshotter
+import mkmonitor_auto
 import unified
 from monitor import (
     docker_containers, passbolt_status, checkmk_status, db_status,
@@ -537,5 +538,6 @@ if _wait_for_db():
     _bootstrap()
     lifecycle.start_tracker(app, db, ContainerLifecycle)
     checkmk_snapshotter.start_snapshotter(app, db, CheckmkSnapshot)
+    mkmonitor_auto.start(app, db)
 else:
     raise RuntimeError("DB central no respondio a tiempo")

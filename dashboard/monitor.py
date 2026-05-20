@@ -8,6 +8,7 @@ Lectura:
 Escritura (modo experto, solo admins):
 - start/stop/restart de contenedores
 """
+import os
 import docker
 import requests
 from sqlalchemy import text, inspect
@@ -19,12 +20,28 @@ def _client():
     return docker.from_env()
 
 
+def _list_filters():
+    """Filtro para listar solo contenedores del compose project.
+
+    Por defecto el dashboard solo ve los servicios del stack 'rene'.
+    Para ver todos los contenedores del host, setear SHOW_ALL_CONTAINERS=1.
+    """
+    if os.environ.get("SHOW_ALL_CONTAINERS", "0").lower() in ("1", "true", "yes"):
+        return None
+    project = os.environ.get("COMPOSE_PROJECT", "rene")
+    return {"label": f"com.docker.compose.project={project}"}
+
+
 # ---------- Lectura de contenedores ----------
 
 def docker_containers():
     try:
         containers = []
-        for c in _client().containers.list(all=True):
+        filters = _list_filters()
+        kwargs = {"all": True}
+        if filters:
+            kwargs["filters"] = filters
+        for c in _client().containers.list(**kwargs):
             state = c.attrs.get("State", {})
             health = "n/a"
             if state.get("Health"):
