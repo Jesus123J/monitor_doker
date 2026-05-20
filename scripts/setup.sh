@@ -42,17 +42,51 @@ CFG
 fi
 
 echo "==> Verificando archivo .env..."
-if [[ ! -f "$ROOT/.env" ]]; then
-    if [[ -f "$ROOT/.env.example" ]]; then
-        cp "$ROOT/.env.example" "$ROOT/.env"
-        echo "    Copie .env.example -> .env. EDITA los passwords antes de arrancar!"
-    else
-        echo "    ATENCION: no hay .env ni .env.example. Crealo manualmente."
-    fi
+if [[ -f "$ROOT/.env" ]]; then
+    echo "    .env ya existe, no toco nada."
 else
-    echo "    .env ya existe."
+    if [[ ! -f "$ROOT/.env.example" ]]; then
+        echo "    ATENCION: no hay .env.example."
+        exit 1
+    fi
+
+    echo "    Generando .env con passwords aleatorios..."
+
+    # Genero un set de passwords aleatorios y reemplazo los placeholders
+    # del .env.example. Usuario admin del dashboard se queda con el del ejemplo
+    # asi se puede entrar la primera vez sin tener que buscarlo.
+    cp "$ROOT/.env.example" "$ROOT/.env"
+
+    declare -A REPL=(
+        [DB_ROOT_PASSWORD]="$(openssl rand -hex 16)"
+        [PASSBOLT_DB_PASSWORD]="$(openssl rand -hex 16)"
+        [DASHBOARD_DB_PASSWORD]="$(openssl rand -hex 16)"
+        [UNIFIED_READER_PASSWORD]="$(openssl rand -hex 16)"
+        [CMK_PASSWORD]="$(openssl rand -hex 12)"
+        [DASHBOARD_SECRET_KEY]="$(openssl rand -hex 32)"
+        [DASHBOARD_ADMIN_PASSWORD]="$(openssl rand -hex 8)"
+    )
+
+    for key in "${!REPL[@]}"; do
+        # sed sin -i para portabilidad (mac vs gnu)
+        tmp="$(mktemp)"
+        awk -v k="$key" -v v="${REPL[$key]}" '
+            BEGIN { FS=OFS="=" }
+            $1 == k { print k "=" v; next }
+            { print }
+        ' "$ROOT/.env" > "$tmp"
+        mv "$tmp" "$ROOT/.env"
+    done
+
+    echo "    .env generado con passwords nuevos."
+    echo "    Password del admin del dashboard:"
+    grep '^DASHBOARD_ADMIN_PASSWORD=' "$ROOT/.env"
 fi
 
 echo ""
 echo "Setup OK. Siguiente paso:"
 echo "  docker compose up -d"
+echo ""
+echo "Login del dashboard cuando arranque:"
+grep '^DASHBOARD_ADMIN_USER='     "$ROOT/.env" 2>/dev/null || true
+grep '^DASHBOARD_ADMIN_PASSWORD=' "$ROOT/.env" 2>/dev/null || true
