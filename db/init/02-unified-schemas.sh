@@ -114,6 +114,15 @@ GRANT SELECT ON dashboard.* TO 'unified_reader'@'%';
 GRANT SELECT ON checkmk.*   TO 'unified_reader'@'%';
 GRANT SELECT ON mkmonitor.* TO 'unified_reader'@'%';
 
+-- =============================
+-- El usuario 'dashboard' es el "duenyo operativo" de mkmonitor:
+-- su worker mkmonitor_auto.py abre y cierra incidentes en base al
+-- estado de los contenedores. Necesita INSERT/UPDATE/DELETE.
+-- Tambien escribe en checkmk.host_snapshots (snapshotter).
+-- =============================
+GRANT ALL PRIVILEGES ON mkmonitor.* TO 'dashboard'@'%';
+GRANT ALL PRIVILEGES ON checkmk.*   TO 'dashboard'@'%';
+
 FLUSH PRIVILEGES;
 SQL
 
