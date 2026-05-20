@@ -22,19 +22,35 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [[ -f "$ROOT/.env" ]] && { set -a; source "$ROOT/.env"; set +a; }
 
 CMK_SITE="${CMK_SITE_ID:-monitor}"
-SECRET="${CMK_AUTOMATION_SECRET:-}"
-URL_BASE="http://localhost:5050/monitor/check_mk/api/1.0"
+URL_BASE="http://localhost:5050/${CMK_SITE}/check_mk/api/1.0"
 
-if [[ -z "$SECRET" || "$SECRET" == "cambia_automation_secret" ]]; then
-    echo "ERROR: CMK_AUTOMATION_SECRET no esta configurado en .env"
-    echo "Crea el usuario 'automation' en Checkmk:"
-    echo "  http://localhost:5050/monitor/ -> Setup -> Users -> Add user"
-    echo "  Username: automation, Role: Administrator"
-    echo "Despues copia el 'automation secret' y pegalo en .env"
+# Tres opciones de autenticacion, en orden de preferencia:
+# 1) CMK_API_USER + CMK_API_SECRET   (cualquier usuario, recomendado)
+# 2) automation + CMK_AUTOMATION_SECRET  (usuario automation dedicado)
+# 3) cmkadmin + CMK_PASSWORD         (usuario admin default)
+API_USER="${CMK_API_USER:-}"
+API_SECRET="${CMK_API_SECRET:-}"
+
+if [[ -z "$API_USER" || -z "$API_SECRET" ]]; then
+    if [[ -n "${CMK_AUTOMATION_SECRET:-}" && "$CMK_AUTOMATION_SECRET" != "cambia_automation_secret" ]]; then
+        API_USER="automation"
+        API_SECRET="$CMK_AUTOMATION_SECRET"
+    elif [[ -n "${CMK_PASSWORD:-}" ]]; then
+        API_USER="cmkadmin"
+        API_SECRET="$CMK_PASSWORD"
+    fi
+fi
+
+if [[ -z "$API_USER" || -z "$API_SECRET" ]]; then
+    echo "ERROR: no encuentro credenciales API en .env"
+    echo "Agrega una de estas combinaciones:"
+    echo "  CMK_API_USER=cmkadmin"
+    echo "  CMK_API_SECRET=<password de cmkadmin o el secret>"
     exit 1
 fi
 
-AUTH="Authorization: Bearer automation $SECRET"
+echo "Usando usuario API: $API_USER"
+AUTH="Authorization: Bearer $API_USER $API_SECRET"
 
 # Los 6 servicios del stack que NO son checkmk (ya esta monitoreado a si mismo)
 HOSTS=(
