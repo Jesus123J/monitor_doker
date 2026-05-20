@@ -20,16 +20,48 @@ def _client():
     return docker.from_env()
 
 
-def _list_filters():
-    """Filtro para listar solo contenedores del compose project.
+_PROJECT_CACHE = None
 
-    Por defecto el dashboard solo ve los servicios del stack 'rene'.
-    Para ver todos los contenedores del host, setear SHOW_ALL_CONTAINERS=1.
+
+def _detect_project():
+    """Auto-detecta el compose project name.
+
+    Lee el label del propio contenedor del dashboard via docker.sock.
+    Asi funciona sin importar el nombre del folder donde clonaron el repo
+    (monitor_doker, rene, lo-que-sea).
     """
+    global _PROJECT_CACHE
+    if _PROJECT_CACHE is not None:
+        return _PROJECT_CACHE
+
+    # 1) Override manual via env var
+    explicit = os.environ.get("COMPOSE_PROJECT")
+    if explicit:
+        _PROJECT_CACHE = explicit
+        return _PROJECT_CACHE
+
+    # 2) Inspeccionar el propio contenedor por su hostname (= container ID)
+    try:
+        import socket
+        hostname = socket.gethostname()
+        self_container = _client().containers.get(hostname)
+        project = self_container.labels.get("com.docker.compose.project")
+        if project:
+            _PROJECT_CACHE = project
+            return project
+    except Exception:
+        pass
+
+    # 3) Fallback
+    _PROJECT_CACHE = "monitor_doker"
+    return _PROJECT_CACHE
+
+
+def _list_filters():
+    """Filtro para listar solo contenedores del compose project."""
     if os.environ.get("SHOW_ALL_CONTAINERS", "0").lower() in ("1", "true", "yes"):
         return None
-    project = os.environ.get("COMPOSE_PROJECT", "rene")
-    return {"label": f"com.docker.compose.project={project}"}
+    return {"label": f"com.docker.compose.project={_detect_project()}"}
 
 
 # ---------- Lectura de contenedores ----------

@@ -21,14 +21,14 @@ LOCK_PATH = "/tmp/dashboard-lifecycle.lock"
 
 
 def _read_state():
+    from monitor import _detect_project
     client = docker.from_env()
     out = {}
     # Mismo filtro que monitor.docker_containers(): solo project containers
-    project = os.environ.get("COMPOSE_PROJECT", "rene")
     show_all = os.environ.get("SHOW_ALL_CONTAINERS", "0").lower() in ("1", "true", "yes")
     kwargs = {"all": True}
     if not show_all:
-        kwargs["filters"] = {"label": f"com.docker.compose.project={project}"}
+        kwargs["filters"] = {"label": f"com.docker.compose.project={_detect_project()}"}
     for c in client.containers.list(**kwargs):
         state = c.attrs.get("State", {})
         health = "n/a"
