@@ -120,7 +120,7 @@ def open_incidents_with_passbolt_creds():
 
 
 def assets_health_summary():
-    """Resumen para la pagina /unified: assets de MKMonitor con su estado actual en Checkmk."""
+    """Resumen para /unified: assets MKMonitor + estado real del contenedor + Checkmk."""
     sql = text("""
         SELECT
             a.id,
@@ -128,6 +128,11 @@ def assets_health_summary():
             a.ip_address,
             a.type,
             a.criticality,
+            -- Estado actual del contenedor (de la ultima fila en lifecycle)
+            cl.new_state   AS container_state,
+            cl.health      AS container_health,
+            cl.created_at  AS state_updated,
+            -- Estado de Checkmk (solo se llena si es un host monitoreado allá)
             cm.state_text  AS checkmk_state,
             cm.snapshot_at AS checkmk_last_seen,
             (
@@ -139,6 +144,14 @@ def assets_health_summary():
                 WHERE pb.deleted = 0 AND pb.uri LIKE CONCAT('%', a.hostname, '%')
             ) AS passbolt_resources
         FROM mkmonitor.assets a
+        LEFT JOIN (
+            SELECT container_name, new_state, health, created_at
+            FROM dashboard.container_lifecycle
+            WHERE id IN (
+                SELECT MAX(id) FROM dashboard.container_lifecycle
+                GROUP BY container_name
+            )
+        ) cl ON cl.container_name = a.hostname
         LEFT JOIN (
             SELECT host_name, state_text, snapshot_at
             FROM checkmk.host_snapshots

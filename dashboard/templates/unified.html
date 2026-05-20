@@ -15,6 +15,14 @@
   'UNKNOWN': 'secondary'
 } %}
 
+{% set cstate = {
+  'running':    'success',
+  'exited':     'danger',
+  'restarting': 'warning',
+  'paused':     'secondary',
+  'dead':       'danger'
+} %}
+
 {% block content %}
 
 <h3><i class="bi bi-diagram-3-fill"></i> Vista unificada (3 bases)</h3>
@@ -50,30 +58,49 @@
 
 <!-- ===== Assets de MKMonitor con cross-data ===== -->
 <div class="card shadow-sm mb-4">
-  <div class="card-header"><strong>Assets de MKMonitor + estado Checkmk + credenciales Passbolt</strong></div>
+  <div class="card-header"><strong>Assets de MKMonitor + estado real del contenedor + Checkmk + credenciales</strong></div>
   <div class="table-responsive">
     <table class="table table-hover mb-0 align-middle">
       <thead class="table-light">
         <tr>
           <th>Asset</th>
-          <th>IP</th>
-          <th>Tipo</th>
           <th>Criticidad</th>
+          <th>Estado contenedor</th>
+          <th>Health</th>
           <th>Estado Checkmk</th>
-          <th class="text-end">Incidentes abiertos</th>
-          <th class="text-end">Creds en Passbolt</th>
+          <th class="text-end">Incidentes</th>
+          <th class="text-end">Creds Passbolt</th>
         </tr>
       </thead>
       <tbody>
         {% for a in assets %}
         <tr>
-          <td><code>{{ a.hostname }}</code></td>
-          <td class="text-muted small">{{ a.ip_address or '-' }}</td>
-          <td class="small">{{ a.type }}</td>
+          <td>
+            <code>{{ a.hostname }}</code>
+            <small class="text-muted d-block">{{ a.type }}</small>
+          </td>
           <td>
             <span class="badge text-bg-{{ crit.get(a.criticality,'secondary') }}">
               {{ a.criticality }}
             </span>
+          </td>
+          <td>
+            {% if a.container_state %}
+              <span class="badge text-bg-{{ cstate.get(a.container_state,'secondary') }}">
+                {{ a.container_state }}
+              </span>
+            {% else %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if a.container_health == 'healthy' %}
+              <span class="badge text-bg-success">healthy</span>
+            {% elif a.container_health in ['unhealthy','starting'] %}
+              <span class="badge text-bg-warning">{{ a.container_health }}</span>
+            {% else %}
+              <span class="text-muted small">{{ a.container_health or '—' }}</span>
+            {% endif %}
           </td>
           <td>
             {% if a.checkmk_state %}
@@ -81,10 +108,10 @@
                 {{ a.checkmk_state }}
               </span>
             {% else %}
-              <span class="text-muted small">sin snapshot</span>
+              <span class="text-muted small">n/a</span>
             {% endif %}
           </td>
-          <td class="text-end {% if a.open_incidents %}text-danger{% else %}text-muted{% endif %}">
+          <td class="text-end {% if a.open_incidents %}text-danger fw-bold{% else %}text-muted{% endif %}">
             {{ a.open_incidents }}
           </td>
           <td class="text-end {% if a.passbolt_resources %}text-success{% else %}text-muted{% endif %}">
@@ -96,6 +123,11 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+  <div class="card-footer text-muted small">
+    <strong>Estado contenedor</strong> viene de <code>dashboard.container_lifecycle</code> (registrado cada 30s).
+    <strong>Estado Checkmk</strong> aparece solo si el asset coincide con un host configurado en Checkmk —
+    los servicios del stack son contenedores Docker, no hosts de Checkmk, asi que normalmente sale n/a.
   </div>
 </div>
 
